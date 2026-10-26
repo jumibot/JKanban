@@ -37,7 +37,7 @@ JKanban es una aplicación web de gestión de tareas tipo Kanban multiusuario. O
 ## Estructura de carpetas
 
 ```
-ExampleClaudeCode/
+JKanban/
 ├── app/                        # Backend
 │   ├── domain/                 # Entidades, ABCs repositorios, excepciones
 │   ├── application/            # Casos de uso (lógica de negocio)
