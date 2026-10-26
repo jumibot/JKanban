@@ -12,7 +12,8 @@ from typing import Callable
 from backend.config import db_settings
 
 # Each engine package must provide connection.py (get_connection) and
-# adapter.py (insert_returning_id, idempotent_insert, map_integrity_error).
+# adapter.py (insert_returning_id, idempotent_insert, map_integrity_error,
+# reset_tables).
 _ENGINE_PACKAGES = {
     "sqlite": "backend.infrastructure.persistence.sqlite",
 }
@@ -57,6 +58,16 @@ def idempotent_insert(conn, sql: str, params) -> None:
 def map_integrity_error(exc_factory: Callable):
     """Context manager: translate the engine's integrity error into exc_factory()."""
     return _engine_module("adapter").map_integrity_error(exc_factory)
+
+
+def reset_tables(tables: list[str]) -> None:
+    """Empty the given tables (children first) and restart their ID counters.
+
+    For tests and maintenance only — never call it from application code.
+    """
+    with get_connection() as conn:
+        _engine_module("adapter").reset_tables(conn, tables)
+        conn.commit()
 
 
 # ── Initialisation ────────────────────────────────────────────────────────────

@@ -62,6 +62,16 @@ class Project:
 
 
 @dataclass
+class ProjectContentCounts:
+    """How much dependent data a project holds (used to preview cascade deletes)."""
+    groups: int = 0
+    tasks: int = 0
+    tags: int = 0
+    priorities: int = 0
+    members: int = 0
+
+
+@dataclass
 class Group:
     name: str
     description: str | None = None

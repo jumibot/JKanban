@@ -1,11 +1,10 @@
-from datetime import datetime
 from backend.domain.entities import Group, Tag
 from backend.domain.repositories import GroupRepository
-from backend.infrastructure.persistence.common.utils import ph, utcnow
+from backend.infrastructure.persistence.common.utils import ph, row_dt, row_opt, utcnow
 from backend.infrastructure.persistence.factory import get_connection, insert_returning_id
 
 
-class SQLiteGroupRepository(GroupRepository):
+class SqlGroupRepository(GroupRepository):
 
     def get_all(self) -> list[Group]:
         with get_connection() as conn:
@@ -26,8 +25,8 @@ class SQLiteGroupRepository(GroupRepository):
     def count_by_project(self, project_id: int) -> int:
         with get_connection() as conn:
             return conn.execute(
-                "SELECT COUNT(*) FROM groups WHERE project_id = %s", (project_id,)
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS n FROM groups WHERE project_id = %s", (project_id,)
+            ).fetchone()["n"]
 
     def create(self, group: Group) -> Group:
         with get_connection() as conn:
@@ -86,20 +85,15 @@ class SQLiteGroupRepository(GroupRepository):
 
     @staticmethod
     def _to_entity(row) -> Group:
-        keys = row.keys()
-        def _opt(col): return row[col] if col in keys and row[col] is not None else None
-        def _dt(col):
-            v = _opt(col)
-            return datetime.fromisoformat(v) if v else None
         return Group(
             id=row["id"],
             name=row["name"],
-            description=_opt("description"),
+            description=row_opt(row, "description"),
             color=row["color"],
-            project_id=_opt("project_id"),
-            sort_order=row["sort_order"] if "sort_order" in keys else 0,
-            created_at=_dt("created_at"),
-            modified_at=_dt("modified_at"),
-            created_by=_opt("created_by"),
-            modified_by=_opt("modified_by"),
+            project_id=row_opt(row, "project_id"),
+            sort_order=row["sort_order"] if "sort_order" in row.keys() else 0,
+            created_at=row_dt(row, "created_at"),
+            modified_at=row_dt(row, "modified_at"),
+            created_by=row_opt(row, "created_by"),
+            modified_by=row_opt(row, "modified_by"),
         )

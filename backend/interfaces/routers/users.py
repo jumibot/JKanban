@@ -3,10 +3,10 @@ from backend.application.project_use_cases import ProjectUseCases
 from backend.application.user_use_cases import UserUseCases
 from backend.domain.entities import User
 from backend.domain.exceptions import EmailAlreadyExists, UserNotFound, UserOwnsProjects
-from backend.infrastructure.repositories.group_repository import SQLiteGroupRepository
-from backend.infrastructure.repositories.priority_repository import SQLitePriorityRepository
-from backend.infrastructure.repositories.project_repository import SQLiteProjectRepository
-from backend.infrastructure.repositories.user_repository import SQLiteUserRepository
+from backend.infrastructure.repositories.group_repository import SqlGroupRepository
+from backend.infrastructure.repositories.priority_repository import SqlPriorityRepository
+from backend.infrastructure.repositories.project_repository import SqlProjectRepository
+from backend.infrastructure.repositories.user_repository import SqlUserRepository
 from backend.interfaces.dependencies import get_current_user, get_user_use_cases, require_admin
 from backend.interfaces.schemas import ProjectWithRoleResponse, UserCreate, UserResponse, UserUpdate
 
@@ -15,10 +15,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 def _project_use_cases() -> ProjectUseCases:
     return ProjectUseCases(
-        project_repo=SQLiteProjectRepository(),
-        group_repo=SQLiteGroupRepository(),
-        user_repo=SQLiteUserRepository(),
-        priority_repo=SQLitePriorityRepository(),
+        project_repo=SqlProjectRepository(),
+        group_repo=SqlGroupRepository(),
+        user_repo=SqlUserRepository(),
+        priority_repo=SqlPriorityRepository(),
     )
 
 

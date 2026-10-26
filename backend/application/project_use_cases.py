@@ -1,4 +1,4 @@
-from backend.domain.entities import Project, User
+from backend.domain.entities import Project, ProjectContentCounts, User
 from backend.domain.exceptions import (
     MemberAlreadyInProject, MemberNotInProject,
     PriorityNotFound, ProjectHasGroups, ProjectLeaderRequired, ProjectNotFound, UserNotFound, UserNotInProject,
@@ -78,6 +78,22 @@ class ProjectUseCases:
         groups_in_project = [g for g in self._groups.get_all() if g.project_id == project_id]
         if groups_in_project:
             raise ProjectHasGroups(project_id, len(groups_in_project))
+        self._projects.delete(project_id)
+
+    # ── Cascade delete ───────────────────────────────────────────────────────
+
+    def get_deletion_preview(self, project_id: int) -> tuple[Project, ProjectContentCounts]:
+        """What a cascade delete of this project would remove."""
+        project = self.get_by_id(project_id)
+        return project, self._projects.count_contents(project_id)
+
+    def get_owned_with_contents(self, owner_id: int) -> list[tuple[Project, ProjectContentCounts]]:
+        """Projects owned by a user, each with its dependent-data counts."""
+        return [(p, self._projects.count_contents(p.id)) for p in self._projects.get_owned_by(owner_id)]
+
+    def delete_cascade(self, project_id: int) -> None:
+        """Delete the project and all its data, even if it still has groups."""
+        self.get_by_id(project_id)
         self._projects.delete(project_id)
 
     # ── Members ──────────────────────────────────────────────────────────────

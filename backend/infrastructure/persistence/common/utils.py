@@ -40,10 +40,26 @@ def row_opt(row: Any, col: str) -> Any | None:
     return row[col] if col in row.keys() and row[col] is not None else None
 
 
+def to_datetime(v: Any) -> datetime | None:
+    """Normalise a DB timestamp value to a naive UTC datetime (or None).
+
+    Engines differ in what they return for a timestamp column:
+      - SQLite stores TEXT → ISO-8601 string
+      - PostgreSQL TIMESTAMP[TZ] → datetime (possibly timezone-aware)
+    Domain entities use naive UTC datetimes, so aware values are converted.
+    """
+    if not v:
+        return None
+    if isinstance(v, str):
+        v = datetime.fromisoformat(v)
+    if v.tzinfo is not None:
+        v = v.astimezone(timezone.utc).replace(tzinfo=None)
+    return v
+
+
 def row_dt(row: Any, col: str) -> datetime | None:
-    """Return row[col] parsed as a datetime, or None."""
-    v = row_opt(row, col)
-    return datetime.fromisoformat(v) if v else None
+    """Return row[col] as a naive UTC datetime, or None."""
+    return to_datetime(row_opt(row, col))
 
 
 # ── Placeholder helper ────────────────────────────────────────────────────────

@@ -1,8 +1,7 @@
-from datetime import datetime
 from backend.domain.entities import Tag
 from backend.domain.exceptions import TagNameAlreadyExists
 from backend.domain.repositories import TagRepository
-from backend.infrastructure.persistence.common.utils import utcnow
+from backend.infrastructure.persistence.common.utils import row_dt, row_opt, utcnow
 from backend.infrastructure.persistence.factory import (
     get_connection,
     idempotent_insert,
@@ -11,7 +10,7 @@ from backend.infrastructure.persistence.factory import (
 )
 
 
-class SQLiteTagRepository(TagRepository):
+class SqlTagRepository(TagRepository):
 
     def get_all(self) -> list[Tag]:
         with get_connection() as conn:
@@ -88,18 +87,13 @@ class SQLiteTagRepository(TagRepository):
 
     @staticmethod
     def _to_entity(row) -> Tag:
-        keys = row.keys()
-        def _opt(col): return row[col] if col in keys and row[col] is not None else None
-        def _dt(col):
-            v = _opt(col)
-            return datetime.fromisoformat(v) if v else None
         return Tag(
             id=row["id"],
             name=row["name"],
-            project_id=_opt("project_id"),
+            project_id=row_opt(row, "project_id"),
             color=row["color"],
-            created_at=_dt("created_at"),
-            modified_at=_dt("modified_at"),
-            created_by=_opt("created_by"),
-            modified_by=_opt("modified_by"),
+            created_at=row_dt(row, "created_at"),
+            modified_at=row_dt(row, "modified_at"),
+            created_by=row_opt(row, "created_by"),
+            modified_by=row_opt(row, "modified_by"),
         )

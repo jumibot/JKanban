@@ -43,6 +43,19 @@ def idempotent_insert(conn, sql: str, params) -> None:
     conn.execute(adapted, params)
 
 
+def reset_tables(conn, tables: list[str]) -> None:
+    """Empty the given tables (in order) and restart their ID counters.
+
+    Intended for tests and maintenance scripts.
+    PostgreSQL equivalent: TRUNCATE t1, t2, … RESTART IDENTITY CASCADE.
+    """
+    for table in tables:
+        conn.execute(f"DELETE FROM {table}")
+    conn.execute(
+        f"DELETE FROM sqlite_sequence WHERE name IN ({', '.join('?' * len(tables))})", tables
+    )
+
+
 @contextmanager
 def map_integrity_error(exc_factory: Callable):
     """Translate a SQLite IntegrityError into a domain exception.

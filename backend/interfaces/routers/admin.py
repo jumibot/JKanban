@@ -3,9 +3,13 @@ from pydantic import BaseModel
 
 from backend.application.user_use_cases import verify_password
 from backend.domain.entities import User
-from backend.infrastructure.persistence.factory import get_connection
-from backend.infrastructure.repositories.user_repository import SQLiteUserRepository
-from backend.interfaces.dependencies import get_current_user, require_admin
+from backend.domain.exceptions import UserNotFound
+from backend.interfaces.dependencies import (
+    get_current_user,
+    get_project_use_cases,
+    get_user_use_cases,
+    require_admin,
+)
 from backend.interfaces.schemas import UserResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -44,10 +48,10 @@ class CascadeDeleteRequest(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_user_or_404(user_id: int) -> User:
-    user = SQLiteUserRepository().get_by_id(user_id)
-    if user is None:
+    try:
+        return get_user_use_cases().get_by_id(user_id)
+    except UserNotFound:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -62,40 +66,15 @@ def deletion_preview(
     require_admin(current_user)
     target = _get_user_or_404(user_id)
 
-    with get_connection() as conn:
-        projects_raw = conn.execute(
-            "SELECT id, name FROM projects WHERE owner_id = %s ORDER BY id",
-            (user_id,),
-        ).fetchall()
-
-        projects = []
-        for p in projects_raw:
-            pid = p["id"]
-            groups_count = conn.execute(
-                "SELECT COUNT(*) FROM groups WHERE project_id = %s", (pid,)
-            ).fetchone()[0]
-            tasks_count = conn.execute(
-                """SELECT COUNT(*) FROM tasks t
-                   JOIN groups g ON t.group_id = g.id
-                   WHERE g.project_id = %s""",
-                (pid,),
-            ).fetchone()[0]
-            tags_count = conn.execute(
-                "SELECT COUNT(*) FROM tags WHERE project_id = %s", (pid,)
-            ).fetchone()[0]
-            priorities_count = conn.execute(
-                "SELECT COUNT(*) FROM priorities WHERE project_id = %s", (pid,)
-            ).fetchone()[0]
-            members_count = conn.execute(
-                "SELECT COUNT(*) FROM project_members WHERE project_id = %s", (pid,)
-            ).fetchone()[0]
-            projects.append(ProjectSummary(
-                id=pid, name=p["name"],
-                groups_count=groups_count, tasks_count=tasks_count,
-                tags_count=tags_count, priorities_count=priorities_count,
-                members_count=members_count,
-            ))
-
+    projects = [
+        ProjectSummary(
+            id=project.id, name=project.name,
+            groups_count=counts.groups, tasks_count=counts.tasks,
+            tags_count=counts.tags, priorities_count=counts.priorities,
+            members_count=counts.members,
+        )
+        for project, counts in get_project_use_cases().get_owned_with_contents(user_id)
+    ]
     totals = DeletionTotals(
         projects=len(projects),
         groups=sum(p.groups_count for p in projects),
@@ -128,11 +107,4 @@ def cascade_delete_user(
     if not verify_password(body.admin_password, current_user.password_hash):
         raise HTTPException(status_code=403, detail="Contraseña incorrecta")
 
-    with get_connection() as conn:
-        # Deleting projects cascades: groups → tasks → todo_items, task_tags,
-        # group_tags, project_members, tags, priorities
-        conn.execute("DELETE FROM projects WHERE owner_id = %s", (user_id,))
-        # Deleting user cascades: project_members (as member), sets user_id=NULL
-        # on tasks, sets leader_id=NULL on projects
-        conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
-        conn.commit()
+    get_user_use_cases().delete_cascade(user_id)

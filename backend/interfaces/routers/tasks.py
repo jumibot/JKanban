@@ -14,13 +14,13 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 def _group_project_id(group_id: int) -> int | None:
     """Returns the project_id of a group, or None if group has no project or doesn't exist."""
     from backend.application.group_use_cases import GroupUseCases
-    from backend.infrastructure.repositories.group_repository import SQLiteGroupRepository
-    from backend.infrastructure.repositories.project_repository import SQLiteProjectRepository
-    from backend.infrastructure.repositories.task_repository import SQLiteTaskRepository
+    from backend.infrastructure.repositories.group_repository import SqlGroupRepository
+    from backend.infrastructure.repositories.project_repository import SqlProjectRepository
+    from backend.infrastructure.repositories.task_repository import SqlTaskRepository
     uc = GroupUseCases(
-        group_repo=SQLiteGroupRepository(),
-        task_repo=SQLiteTaskRepository(),
-        project_repo=SQLiteProjectRepository(),
+        group_repo=SqlGroupRepository(),
+        task_repo=SqlTaskRepository(),
+        project_repo=SqlProjectRepository(),
     )
     try:
         return uc.get_by_id(group_id).project_id
