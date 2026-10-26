@@ -104,7 +104,7 @@ class ProjectUseCases:
 | `persistence/sqlite/` | Implementación SQLite completa: `connection.py` (wrapper con traducción `%s`→`?`), `schema.py` (DDL), `migrations.py` (migraciones ad-hoc no destructivas), `seed.py` (datos demo), `adapter.py` (helpers `insert_returning_id`, etc.). |
 | `persistence/common/` | Utilidades agnósticas de engine: `utcnow()`, `ph(n)` para placeholders portables, helpers de datetime. |
 | `jwt_handler.py` | Codifica y decodifica tokens JWT HS256 con `PyJWT`. Expone `create_access_token(user_id)` y `decode_token(token) → user_id`. |
-| `repositories/` | Una clase por entidad (`SQLiteUserRepository`, `SQLiteProjectRepository`, etc.) que implementa el ABC correspondiente de `domain/repositories.py`. Importan conexión y helpers solo desde el factory; SQL con placeholders `%s`, sin nada específico de SQLite (lo verifica `tests/test_persistence_portability.py`). El prefijo `SQLite` del nombre de clase es histórico. |
+| `repositories/` | Una clase por entidad (`SqlUserRepository`, `SqlProjectRepository`, etc.) que implementa el ABC correspondiente de `domain/repositories.py`. Importan conexión y helpers solo desde el factory; SQL con placeholders `%s`, sin nada específico de SQLite (lo verifica `tests/test_persistence_portability.py`). Son las únicas clases que ejecutan SQL: routers y casos de uso nunca acceden a la BD directamente. |
 
 **Regla:** esta capa puede importar `domain/` y librerías externas (sqlite3, PyJWT). No importa `application/` ni `interfaces/`.
 
@@ -130,7 +130,7 @@ class ProjectUseCases:
 POST /tasks/  {group_id: 5, title: "Nueva tarea"}
   │
   ├─ FastAPI extrae el JWT del header
-  ├─ Depends(get_current_user) → decode_token() → SQLiteUserRepository.get_by_id()
+  ├─ Depends(get_current_user) → decode_token() → SqlUserRepository.get_by_id()
   ├─ Pydantic valida el body → TaskCreate
   │
   ├─ router/tasks.py llama a task_use_cases.create(group_id=5, title=..., ...)

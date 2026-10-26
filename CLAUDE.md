@@ -70,7 +70,10 @@ SQL portable en repositorios y routers (lo verifica `tests/test_persistence_port
 - `%s` como placeholder (el wrapper SQLite lo traduce a `?`); `ph(n)` de `persistence/common/utils.py` para `IN (...)`
 - `insert_returning_id(conn, sql, params)` para obtener el ID insertado (no `cursor.lastrowid`)
 - `idempotent_insert(...)` en vez de `INSERT OR IGNORE`; `with map_integrity_error(lambda: DomainExc(...)):` en vez de capturar `sqlite3.IntegrityError`
-- Timestamps con `utcnow()` de `common/utils.py`; nada de `%` literal en el SQL (pasar patrones `LIKE` como parámetro)
+- Timestamps con `utcnow()` al escribir y `row_dt()` al leer (acepta `str` o `datetime`); nada de `%` literal en el SQL (pasar patrones `LIKE` como parámetro)
+- Booleanos: escribir `bool(...)`, nunca `int(...)`; sumar con `SUM(CASE WHEN col THEN 1 ELSE 0 END)`
+- Columnas por nombre: `SELECT COUNT(*) AS n` → `row["n"]`, nunca `row[0]`
+- Solo los repositorios (`Sql*Repository`) ejecutan SQL: routers, casos de uso y tests nunca usan `get_connection`
 - Usar siempre `with get_connection() as conn:` — al salir hace commit/rollback **y cierra** la conexión
 
 Específico de SQLite (dentro de `persistence/sqlite/`): `PRAGMA foreign_keys = ON` por conexión, migraciones no destructivas en `migrations.py`. Para añadir un engine: `docs/adding-a-db-engine.md`.

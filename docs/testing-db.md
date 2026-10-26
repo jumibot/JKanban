@@ -78,9 +78,7 @@ todo_items → task_tags → group_tags → tasks → tags
 → project_members → groups → projects → users → priorities
 ```
 
-Después se resetean las secuencias de autoincremento (`sqlite_sequence`) para que los IDs empiecen en 1 en cada test.
-
-> **Nota SQLite-específica:** `DELETE FROM sqlite_sequence WHERE name=?` solo existe en SQLite. Si se añade un adapter PostgreSQL, `clean_db` deberá detectar el engine activo o usar `TRUNCATE … RESTART IDENTITY CASCADE`.
+El borrado y el reinicio de los contadores de ID (para que empiecen en 1 en cada test) los hace `factory.reset_tables(tablas)`, que delega en el `adapter.py` del engine activo: en SQLite, `DELETE` + `sqlite_sequence`; en PostgreSQL sería `TRUNCATE … RESTART IDENTITY CASCADE`. `conftest.py` no contiene SQL.
 
 ---
 
@@ -113,10 +111,9 @@ Para verificar que una operación persistió correctamente, usa el `client` para
 r = client.get(f"/projects/{pid}", headers=headers)
 assert r.json()["name"] == "Nuevo nombre"
 
-# Solo si no hay endpoint para ello:
-with db_module.get_connection() as conn:
-    row = conn.execute("SELECT password_hash FROM users WHERE id=?", (uid,)).fetchone()
-assert row["password_hash"].startswith("pbkdf2$")
+# Solo si no hay endpoint para ello: pasar por un caso de uso / repositorio
+from backend.interfaces.dependencies import get_user_use_cases
+assert get_user_use_cases().get_by_id(uid).password_hash.startswith("pbkdf2$")
 ```
 
 ---
@@ -126,7 +123,7 @@ assert row["password_hash"].startswith("pbkdf2$")
 | Variable | Efecto en tests |
 |----------|----------------|
 | `SQLITE_PATH` | Ruta al fichero SQLite que usarán todos los tests. `conftest.py` la fija a un temp file. |
-| `DB_ENGINE` | Si se establece a otro valor (p.ej. `postgres`), los tests intentarán conectar a ese engine. En ese caso `clean_db` necesita adaptarse (ver nota anterior). |
+| `DB_ENGINE` | Con un valor distinto de `sqlite` (p.ej. `postgres`), `conftest.py` no crea el fichero temporal y los tests usan la BD que indique el entorno (`DATABASE_URL`). Debe ser una BD desechable: `clean_db` la vacía antes de cada test. |
 | `JWT_SECRET` | Si no se fija, usa el valor por defecto de desarrollo. No afecta al aislamiento de BD. |
 
 ---

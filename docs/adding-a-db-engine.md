@@ -39,9 +39,12 @@ Todos los repositorios importan **solo desde `persistence.factory`**: `get_conne
 - Placeholders siempre `%s` (el wrapper SQLite los traduce a `?`). Para `IN (...)` usar `ph(n)` de `persistence/common/utils.py`.
 - Nunca `cursor.lastrowid`, `INSERT OR IGNORE`, `import sqlite3` ni imports desde `persistence.sqlite`: usar los helpers del factory.
 - No escribir un `%` literal en el SQL (p.ej. `LIKE '%texto'`): pasar el patrón como parámetro (`LIKE %s`, `("%texto",)`).
-- Timestamps generados en Python con `utcnow()`, nunca `datetime('now')` / `NOW()` en el SQL.
+- Timestamps generados en Python con `utcnow()`, nunca `datetime('now')` / `NOW()` en el SQL. Leerlos con `row_dt()`, nunca `datetime.fromisoformat()`.
+- Booleanos: escribir `bool(...)`, nunca `int(...)`. Sumar con `SUM(CASE WHEN col THEN 1 ELSE 0 END)`.
+- Leer columnas por nombre (`SELECT COUNT(*) AS n` → `row["n"]`), nunca por posición (`row[0]`).
+- Solo los repositorios hablan con la BD: ni routers, ni casos de uso, ni dominio importan `persistence` o `get_connection`.
 
-`tests/test_persistence_portability.py` verifica estas reglas automáticamente en `repositories/` y `interfaces/routers/`.
+`tests/test_persistence_portability.py` verifica estas reglas automáticamente en `repositories/`, `domain/`, `application/` e `interfaces/`.
 
 ---
 
@@ -50,7 +53,7 @@ Todos los repositorios importan **solo desde `persistence.factory`**: `get_conne
 ```
 [ ] 1. Crear backend/infrastructure/persistence/<engine>/
 [ ] 2. connection.py  — clase wrapper + get_connection()
-[ ] 3. adapter.py     — insert_returning_id, idempotent_insert, map_integrity_error
+[ ] 3. adapter.py     — insert_returning_id, idempotent_insert, map_integrity_error, reset_tables
 [ ] 4. schema.py      — create_schema(conn)
 [ ] 5. migrations.py  — migrate(conn)
 [ ] 6. seed.py        — seed_db()
@@ -177,13 +180,14 @@ def get_connection() -> PostgreSQLConnection:
 
 ## Paso 3 — `adapter.py`
 
-Este módulo aísla los tres puntos de especificidad del driver que de otro modo se filtrarían a los repositorios. Debe ofrecer exactamente las mismas tres funciones que `sqlite/adapter.py`:
+Este módulo aísla los puntos de especificidad del driver que de otro modo se filtrarían a los repositorios. Debe ofrecer las mismas cuatro funciones que `sqlite/adapter.py` (`reset_tables` solo la usan los tests):
 
 | Función | Qué hace | SQLite | PostgreSQL |
 |---------|---------|--------|-----------|
 | `insert_returning_id(conn, sql, params)` | INSERT y devuelve el ID generado | `cursor.lastrowid` | `RETURNING id` |
 | `idempotent_insert(conn, sql, params)` | INSERT que ignora duplicados | `INSERT OR IGNORE INTO` | `INSERT … ON CONFLICT DO NOTHING` |
 | `map_integrity_error(exc_factory)` | Context manager que traduce errores de integridad a excepciones de dominio | `sqlite3.IntegrityError` | `psycopg2.errors.UniqueViolation` |
+| `reset_tables(conn, tables)` | Vacía tablas y reinicia contadores de ID (tests) | `DELETE` + `sqlite_sequence` | `TRUNCATE … RESTART IDENTITY CASCADE` |
 
 ### Ejemplo PostgreSQL
 
@@ -211,6 +215,10 @@ def map_integrity_error(exc_factory: Callable):
         yield
     except psycopg2.errors.UniqueViolation as e:
         raise exc_factory() from e
+
+
+def reset_tables(conn, tables: list[str]) -> None:
+    conn.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
 ```
 
 ---
@@ -380,17 +388,20 @@ DB_ENGINE=postgres DATABASE_URL=postgresql://user:pass@localhost:5432/jkanban_te
     pytest -v
 ```
 
-La suite de tests no debe requerir modificaciones en los tests de API, pero **`tests/conftest.py` sí está atado hoy a SQLite** (fija `SQLITE_PATH` a un fichero temporal y trunca tablas con SQL directo). Habrá que darle una rama para el nuevo engine que apunte a una BD de pruebas.
+La suite de tests no requiere modificaciones: `tests/conftest.py` solo crea el fichero temporal cuando `DB_ENGINE=sqlite` y limpia las tablas con `factory.reset_tables()`, que delega en el `adapter.py` del engine. Con otro engine, la BD de pruebas se indica por entorno (`DATABASE_URL` apuntando a una BD **desechable**: los tests la vacían).
 
-### Pendientes conocidos antes de que PostgreSQL funcione
+### Qué ya está resuelto en el código común
 
-Los repositorios ya no contienen SQL específico de SQLite, pero aún asumen algunos tipos de dato de SQLite:
+| Diferencia entre engines | Cómo lo absorbe el código actual |
+|--------------------------|----------------------------------|
+| Fechas: SQLite devuelve `str`, PostgreSQL `datetime` (con zona si es `TIMESTAMPTZ`) | `row_dt()` / `to_datetime()` aceptan ambos y normalizan a `datetime` UTC sin zona |
+| Booleanos: SQLite `INTEGER` 0/1, PostgreSQL `BOOLEAN` | Se escribe siempre `bool(...)` (sqlite3 lo guarda como 1/0); las sumas usan `SUM(CASE WHEN completed THEN 1 ELSE 0 END)` |
+| Filas: `sqlite3.Row` admite `row[0]`, `RealDictCursor` no | Todo acceso por nombre: `SELECT COUNT(*) AS n … row["n"]` |
+| SQL fuera de infraestructura | Recuentos y borrados en cascada movidos a `ProjectRepository.count_contents()` / `get_owned_by()` y `UserRepository.delete_with_owned_projects()` |
 
-| Punto | Por qué falla en PostgreSQL | Opciones |
-|-------|-----------------------------|----------|
-| Fechas | Los `_to_entity()` hacen `datetime.fromisoformat(row[...])`: esperan `str`. Una columna `TIMESTAMPTZ` devuelve ya un `datetime`. | Guardar fechas como `TEXT` también en PostgreSQL, o hacer que `row_dt()` acepte ambos tipos. |
-| Booleanos | `SUM(completed)` en `task_repository._load_todo_counts` no funciona sobre `BOOLEAN`. | Usar `SUM(CASE WHEN completed THEN 1 ELSE 0 END)` o `COUNT(*) FILTER (WHERE completed)`. |
-| SQL en routers | `routers/admin.py` y `routers/projects.py` ejecutan SQL directamente (recuentos y borrados en cascada). Es portable, pero viola la arquitectura. | Moverlo a repositorios / casos de uso. |
+`tests/test_persistence_portability.py` impide que estas diferencias vuelvan a colarse.
+
+> **Recomendación de esquema:** declarar las fechas como `TIMESTAMP` (sin zona) y guardar UTC, igual que hace hoy `utcnow()`. `TIMESTAMPTZ` también funciona gracias a `to_datetime()`, pero entonces la zona horaria del servidor deja de ser irrelevante.
 
 ---
 
