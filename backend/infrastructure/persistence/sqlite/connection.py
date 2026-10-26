@@ -41,6 +41,9 @@ class SQLiteConnection:
     def commit(self) -> None:
         self._c.commit()
 
+    def close(self) -> None:
+        self._c.close()
+
     # ── Context manager ───────────────────────────────────────────────────────
 
     def __enter__(self) -> "SQLiteConnection":
@@ -48,7 +51,13 @@ class SQLiteConnection:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        return self._c.__exit__(exc_type, exc_val, exc_tb)
+        # sqlite3's own __exit__ only commits / rolls back; it does NOT close.
+        # Closing here releases the file handle deterministically instead of
+        # waiting for garbage collection (and matches what server engines need).
+        try:
+            return self._c.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._c.close()
 
     # ── Attribute delegation ──────────────────────────────────────────────────
 
