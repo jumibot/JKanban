@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.application.group_use_cases import GroupUseCases
 from backend.application.task_use_cases import TaskUseCases
 from backend.domain.entities import User
-from backend.domain.exceptions import GroupNotFound, ProjectNotFound
+from backend.domain.exceptions import GroupNotFound, ProjectNotFound, TaskNotFound
 from backend.interfaces.dependencies import (
     get_current_user, get_group_use_cases, get_task_use_cases,
     get_user_project_ids, require_project_access,
@@ -59,7 +59,11 @@ def reorder_groups(
     use_cases: GroupUseCases = Depends(get_group_use_cases),
 ):
     require_project_access(body.project_id, current_user.id)
-    use_cases.reorder_in_project(body.project_id, body.group_ids)
+    try:
+        use_cases.reorder_in_project(body.project_id, body.group_ids)
+    except GroupNotFound as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Group {exc.group_id} not found in project {body.project_id}")
 
 
 @router.patch("/{group_id}/tasks/reorder", status_code=204)
@@ -75,7 +79,11 @@ def reorder_group_tasks(
     except GroupNotFound:
         raise HTTPException(status_code=404, detail="Group not found")
     require_project_access(group.project_id, current_user.id)
-    task_use_cases.reorder_in_group(group_id, body.task_ids)
+    try:
+        task_use_cases.reorder_in_group(group_id, body.task_ids)
+    except TaskNotFound as exc:
+        raise HTTPException(
+            status_code=404, detail=f"Task {exc.task_id} not found in group {group_id}")
 
 
 @router.post("/", response_model=GroupResponse, status_code=201)

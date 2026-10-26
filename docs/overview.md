@@ -93,6 +93,8 @@ Este documento es el punto de entrada. Los documentos siguientes cubren cada ár
 
 | Documento | Contenido |
 |-----------|-----------|
+| [Instalación](installation.md) | Instalar JKanban en una carpeta nueva paso a paso (pensado para que lo ejecute Claude Code): clonado, venv, contraseña del admin, variables de entorno y verificación. |
+| [Servidor MCP](mcp.md) | `jkanban_mcp`: tools MCP para que el proyecto SF guarde planes y actividades (plan = grupo, actividad = tarea, paso = subtarea) a través de la API REST. Instalación y registro en Claude Code. |
 | [Arquitectura del backend](architecture.md) | Clean Architecture: responsabilidades de cada capa, flujo de request, inyección de dependencias, patrones. Incluye anexo sobre cómo añadir un engine de BD. |
 | [Modelo de datos](data-model.md) | Entidades con todos sus campos, tablas de unión, relaciones FK y comportamiento de cascadas. |
 | [API REST](api.md) | Referencia completa de endpoints: parámetros, body, formato de respuesta y errores posibles por endpoint. |

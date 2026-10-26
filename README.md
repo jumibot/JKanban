@@ -313,6 +313,8 @@ La API completa está disponible en modo interactivo en `http://127.0.0.1:8000/d
 
 ## Arranque en desarrollo
 
+> Para una instalación nueva desde cero, incluida la contraseña del administrador, sigue [`docs/installation.md`](docs/installation.md).
+
 ```powershell
 # Instalar dependencias
 pip install -r backend/requirements.txt

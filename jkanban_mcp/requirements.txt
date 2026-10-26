@@ -1,0 +1,4 @@
+# Entorno propio (.venv-mcp): el SDK de MCP 2.x necesita versiones de
+# starlette/pydantic incompatibles con las que fija backend/requirements.txt.
+mcp==2.3.0
+httpx>=0.27

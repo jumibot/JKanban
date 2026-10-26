@@ -40,4 +40,9 @@ class GroupUseCases:
         self._groups.delete(group_id)  # tasks cascade via FK
 
     def reorder_in_project(self, project_id: int, group_ids: list[int]) -> None:
+        # Solo grupos de este proyecto: un id ajeno se trata como inexistente.
+        for group_id in group_ids:
+            group = self._groups.get_by_id(group_id)
+            if group is None or group.project_id != project_id:
+                raise GroupNotFound(group_id)
         self._groups.reorder(group_ids)

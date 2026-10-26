@@ -431,6 +431,12 @@ Reordena todas las columnas de un proyecto.
 
 **Response 204**
 
+**Errores:**
+| Código | Condición |
+|--------|-----------|
+| 404 | Algún id no existe o no es un grupo de `project_id` (no se cambia nada) |
+| 422 | Ids repetidos |
+
 ---
 
 ### `GET /groups/{group_id}/tasks` — member+
@@ -448,6 +454,12 @@ Reordena las tareas dentro de un grupo.
 | `task_ids` | list[int] | ✓ — lista completa en el nuevo orden |
 
 **Response 204**
+
+**Errores:**
+| Código | Condición |
+|--------|-----------|
+| 404 | El grupo no existe, o algún id no es una tarea de ese grupo (no se cambia nada) |
+| 422 | Ids repetidos |
 
 ---
 
@@ -492,6 +504,7 @@ Solo tareas de proyectos accesibles.
 | Código | Condición |
 |--------|-----------|
 | 404 | `group_id`, `user_id` o `priority_id` no encontrados |
+| 422 | `priority_id` de otro proyecto (`PriorityNotInProject`) |
 
 ---
 
@@ -508,7 +521,7 @@ Todos los campos del cuerpo son opcionales. Para mover una tarea entre columnas 
 |--------|-----------|
 | 400 | Intentar mover la tarea a un grupo de otro proyecto |
 | 404 | Tarea / grupo / usuario / prioridad no encontrados |
-| 422 | Sin campos para actualizar |
+| 422 | Sin campos para actualizar, o `priority_id` de otro proyecto (`PriorityNotInProject`) |
 
 ---
 

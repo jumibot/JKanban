@@ -245,9 +245,17 @@ class GroupUpdate(BaseModel):
         return v.upper()
 
 
+def _unique_ids(v: list[int]) -> list[int]:
+    if len(v) != len(set(v)):
+        raise ValueError("ids must not repeat")
+    return v
+
+
 class GroupReorderRequest(BaseModel):
     project_id: int
     group_ids: list[int]
+
+    _unique = field_validator("group_ids")(_unique_ids)
 
 
 class GroupResponse(BaseModel):
@@ -341,6 +349,8 @@ class TaskUpdate(BaseModel):
 
 class TaskReorderRequest(BaseModel):
     task_ids: list[int]
+
+    _unique = field_validator("task_ids")(_unique_ids)
 
 
 # ---------------------------------------------------------------------------

@@ -22,3 +22,6 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Entorno del servidor MCP (jkanban_mcp/requirements.txt)
+.venv-mcp/
