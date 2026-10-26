@@ -88,9 +88,11 @@ pytest -v       # con detalle
 pytest tests/test_projects.py  # un módulo
 ```
 
-- BD en memoria (`:memory:`), independiente de `tasks.db`
+- BD SQLite en fichero temporal (`conftest.py` fija `SQLITE_PATH`), independiente de `tasks.db`
 - Fixture `auth` → usuario normal; `admin_auth` → usuario admin
-- `clean_db` (autouse) trunca tablas antes de cada test
+- `clean_db` (autouse) vacía tablas y reinicia IDs antes de cada test (`factory.reset_tables()`)
+- Los tests no ejecutan SQL: preparan datos vía API o casos de uso
+- `tests/test_persistence_portability.py` vigila las reglas de la sección *Base de datos*
 
 ---
 

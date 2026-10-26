@@ -85,10 +85,10 @@ Funciones exclusivas para usuarios con rol **admin**:
 |---|---|
 | **Python 3.13** | Lenguaje principal |
 | **FastAPI** | Framework REST API |
-| **SQLite** | Base de datos (fichero `tasks.db`) |
+| **SQLite** | Base de datos por defecto (fichero `tasks.db`); capa de persistencia preparada para otros motores vía `DB_ENGINE` |
 | **PyJWT** | Autenticación con tokens JWT |
 | **Uvicorn** | Servidor ASGI |
-| **pytest + httpx** | Suite de tests (293 tests) |
+| **pytest + httpx** | Suite de tests (334 tests) |
 
 ### Frontend
 | Tecnología | Uso |
@@ -110,9 +110,9 @@ El frontend se sirve directamente desde el backend a través de `StaticFiles` de
 |---|---|
 | `backend/` | API REST — lógica de negocio, base de datos y rutas HTTP |
 | `frontend/` | SPA — HTML, estilos y módulos JavaScript |
-| `tests/` | Suite de 293 tests de integración (pytest) |
+| `tests/` | Suite de 334 tests (pytest): integración por recurso + guardas de arquitectura |
 | `scripts/` | Scripts de utilidad para desarrollo |
-| `docs/` | Referencias visuales de diseño |
+| `docs/` | Documentación técnica (entrada: [`docs/overview.md`](docs/overview.md)) y referencias visuales de diseño |
 
 ---
 
@@ -125,14 +125,14 @@ El backend sigue una **arquitectura por capas** (domain → application → infr
 | Entrada | `main.py` | Punto de entrada: registra routers y sirve el frontend estático |
 | Dominio | `domain/` | Entidades, interfaces de repositorio y excepciones de negocio |
 | Aplicación | `application/` | Casos de uso: orquesta dominio e infraestructura |
-| Infraestructura | `infrastructure/` | SQLite, JWT y repositorios concretos |
+| Infraestructura | `infrastructure/` | Persistencia (SQLite por defecto), JWT y repositorios concretos |
 | Interfaces | `interfaces/` | Schemas Pydantic, dependencias FastAPI y routers HTTP |
 
 **`domain/`**
 
 | Archivo | Contenido |
 |---|---|
-| `entities.py` | Dataclasses: `Project`, `Group`, `Task`, `Tag`, `Priority`, `User`, `Todo` |
+| `entities.py` | Dataclasses: `Project`, `Group`, `Task`, `Tag`, `Priority`, `User`, `TodoItem`, `ProjectContentCounts` |
 | `repositories.py` | Interfaces abstractas de repositorio |
 | `exceptions.py` | Excepciones de negocio |
 
@@ -147,15 +147,17 @@ El backend sigue una **arquitectura por capas** (domain → application → infr
 | `priority_use_cases.py` | Prioridades |
 | `user_use_cases.py` | Usuarios |
 | `todo_use_cases.py` | Subtareas |
-| `resource_use_cases.py` | Miembros de proyecto |
 
 **`infrastructure/`**
 
 | Archivo | Contenido |
 |---|---|
-| `database.py` | Conexión SQLite y creación de tablas |
+| `persistence/factory.py` | Elige el motor según `DB_ENGINE` y expone conexión y helpers de dialecto |
+| `persistence/sqlite/` | Conexión, esquema, migraciones y datos demo de SQLite |
+| `persistence/common/` | Utilidades independientes del motor (fechas, placeholders) |
+| `database.py` | Alias de compatibilidad: re-exporta `get_connection` e `init_db` |
 | `jwt_handler.py` | Generación y validación de tokens JWT |
-| `repositories/` | Implementación SQLite de cada repositorio del dominio |
+| `repositories/` | `Sql*Repository`: implementación SQL portable de cada repositorio del dominio |
 
 **`interfaces/routers/`** — un router por entidad
 
@@ -169,7 +171,6 @@ El backend sigue una **arquitectura por capas** (domain → application → infr
 | `priorities.py` | CRUD prioridades por proyecto |
 | `users.py` | CRUD usuarios, perfil |
 | `todos.py` | CRUD subtareas |
-| `resources.py` | Gestión de miembros |
 | `admin.py` | Previsualización y borrado en cascada de usuarios |
 
 ---

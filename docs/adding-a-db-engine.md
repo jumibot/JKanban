@@ -32,7 +32,7 @@ database.py  (alias público, 2 líneas)
             └── <nuevo-engine>/       ← lo que hay que crear
 ```
 
-Todos los repositorios importan **solo desde `persistence.factory`**: `get_connection()` y los tres helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`). El factory lee la variable de entorno `DB_ENGINE` y delega en los módulos `connection.py` / `adapter.py` del engine activo. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.
+Todos los repositorios importan **solo desde `persistence.factory`**: `get_connection()` y los helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`; `reset_tables` lo usan solo los tests). El factory lee la variable de entorno `DB_ENGINE` y delega en los módulos `connection.py` / `adapter.py` del engine activo. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.
 
 ### Reglas para el SQL de repositorios y routers
 
@@ -59,7 +59,7 @@ Todos los repositorios importan **solo desde `persistence.factory`**: `get_conne
 [ ] 6. seed.py        — seed_db()
 [ ] 7. factory.py     — añadir el engine a _ENGINE_PACKAGES y una rama en init_engine()
 [ ] 8. Añadir driver a requirements.txt
-[ ] 9. pytest con DB_ENGINE=<engine> — 293 passed
+[ ] 9. pytest con DB_ENGINE=<engine> — 334 passed (mismo resultado que con SQLite)
 ```
 
 ---
@@ -323,7 +323,7 @@ from backend.infrastructure.persistence.postgres.adapter import insert_returning
 
 def seed_db() -> None:
     with get_connection() as conn:
-        if conn.execute("SELECT COUNT(*) FROM users").fetchone()["count"] > 0:
+        if conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] > 0:
             return
         u_alice = insert_returning_id(
             conn,
@@ -340,7 +340,7 @@ def seed_db() -> None:
 
 Dos cambios. **No modificar las entradas existentes**:
 
-1. Registrar el paquete en `_ENGINE_PACKAGES`. Con eso, `get_connection()` y los tres helpers de dialecto ya despachan al nuevo engine:
+1. Registrar el paquete en `_ENGINE_PACKAGES`. Con eso, `get_connection()` y los helpers de dialecto ya despachan al nuevo engine:
 
 ```python
 _ENGINE_PACKAGES = {
