@@ -64,7 +64,7 @@ def deletion_preview(
 
     with get_connection() as conn:
         projects_raw = conn.execute(
-            "SELECT id, name FROM projects WHERE owner_id = ? ORDER BY id",
+            "SELECT id, name FROM projects WHERE owner_id = %s ORDER BY id",
             (user_id,),
         ).fetchall()
 
@@ -72,22 +72,22 @@ def deletion_preview(
         for p in projects_raw:
             pid = p["id"]
             groups_count = conn.execute(
-                "SELECT COUNT(*) FROM groups WHERE project_id = ?", (pid,)
+                "SELECT COUNT(*) FROM groups WHERE project_id = %s", (pid,)
             ).fetchone()[0]
             tasks_count = conn.execute(
                 """SELECT COUNT(*) FROM tasks t
                    JOIN groups g ON t.group_id = g.id
-                   WHERE g.project_id = ?""",
+                   WHERE g.project_id = %s""",
                 (pid,),
             ).fetchone()[0]
             tags_count = conn.execute(
-                "SELECT COUNT(*) FROM tags WHERE project_id = ?", (pid,)
+                "SELECT COUNT(*) FROM tags WHERE project_id = %s", (pid,)
             ).fetchone()[0]
             priorities_count = conn.execute(
-                "SELECT COUNT(*) FROM priorities WHERE project_id = ?", (pid,)
+                "SELECT COUNT(*) FROM priorities WHERE project_id = %s", (pid,)
             ).fetchone()[0]
             members_count = conn.execute(
-                "SELECT COUNT(*) FROM project_members WHERE project_id = ?", (pid,)
+                "SELECT COUNT(*) FROM project_members WHERE project_id = %s", (pid,)
             ).fetchone()[0]
             projects.append(ProjectSummary(
                 id=pid, name=p["name"],
@@ -131,8 +131,8 @@ def cascade_delete_user(
     with get_connection() as conn:
         # Deleting projects cascades: groups → tasks → todo_items, task_tags,
         # group_tags, project_members, tags, priorities
-        conn.execute("DELETE FROM projects WHERE owner_id = ?", (user_id,))
+        conn.execute("DELETE FROM projects WHERE owner_id = %s", (user_id,))
         # Deleting user cascades: project_members (as member), sets user_id=NULL
         # on tasks, sets leader_id=NULL on projects
-        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
         conn.commit()

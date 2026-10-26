@@ -1,15 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from backend.domain.entities import Priority, Tag, Task, User
 from backend.domain.repositories import TaskRepository
-from backend.infrastructure.persistence.factory import get_connection
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-
-
-def _dt(val: datetime | None) -> str | None:
-    return val.isoformat() if val else None
+from backend.infrastructure.persistence.common.utils import dt_str as _dt, ph, utcnow
+from backend.infrastructure.persistence.factory import get_connection, insert_returning_id
 
 
 class SQLiteTaskRepository(TaskRepository):
@@ -26,7 +19,7 @@ class SQLiteTaskRepository(TaskRepository):
 
     def get_by_id(self, task_id: int) -> Task | None:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            row = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
             if row is None:
                 return None
             task = self._to_entity(row)
@@ -39,7 +32,7 @@ class SQLiteTaskRepository(TaskRepository):
     def get_by_group(self, group_id: int) -> list[Task]:
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM tasks WHERE group_id = ? ORDER BY sort_order, id", (group_id,)
+                "SELECT * FROM tasks WHERE group_id = %s ORDER BY sort_order, id", (group_id,)
             ).fetchall()
             tasks = [self._to_entity(r) for r in rows]
             self._load_user(conn, tasks)
@@ -51,17 +44,18 @@ class SQLiteTaskRepository(TaskRepository):
     def count_by_group(self, group_id: int) -> int:
         with get_connection() as conn:
             return conn.execute(
-                "SELECT COUNT(*) FROM tasks WHERE group_id = ?", (group_id,)
+                "SELECT COUNT(*) FROM tasks WHERE group_id = %s", (group_id,)
             ).fetchone()[0]
 
     def create(self, task: Task) -> Task:
         with get_connection() as conn:
-            cursor = conn.execute(
+            new_id = insert_returning_id(
+                conn,
                 """INSERT INTO tasks
                        (group_id, user_id, priority_id, title, description, completed,
                         estimated_duration, estimated_start, estimated_end,
                         actual_start, actual_end, sort_order)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     task.group_id, task.user_id, task.priority_id,
                     task.title, task.description, int(task.completed),
@@ -72,7 +66,7 @@ class SQLiteTaskRepository(TaskRepository):
                 ),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            row = conn.execute("SELECT * FROM tasks WHERE id = %s", (new_id,)).fetchone()
             result = self._to_entity(row)
             self._load_user(conn, [result])
             self._load_priority(conn, [result])
@@ -84,21 +78,21 @@ class SQLiteTaskRepository(TaskRepository):
         with get_connection() as conn:
             conn.execute(
                 """UPDATE tasks SET
-                       group_id=?, user_id=?, priority_id=?, title=?, description=?,
-                       completed=?, estimated_duration=?, estimated_start=?, estimated_end=?,
-                       actual_start=?, actual_end=?, sort_order=?, modified_at=?
-                   WHERE id=?""",
+                       group_id=%s, user_id=%s, priority_id=%s, title=%s, description=%s,
+                       completed=%s, estimated_duration=%s, estimated_start=%s, estimated_end=%s,
+                       actual_start=%s, actual_end=%s, sort_order=%s, modified_at=%s
+                   WHERE id=%s""",
                 (
                     task.group_id, task.user_id, task.priority_id,
                     task.title, task.description, int(task.completed),
                     task.estimated_duration,
                     _dt(task.estimated_start), _dt(task.estimated_end),
                     _dt(task.actual_start), _dt(task.actual_end),
-                    task.sort_order, _now(), task.id,
+                    task.sort_order, utcnow(), task.id,
                 ),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task.id,)).fetchone()
+            row = conn.execute("SELECT * FROM tasks WHERE id = %s", (task.id,)).fetchone()
             result = self._to_entity(row)
             self._load_user(conn, [result])
             self._load_priority(conn, [result])
@@ -108,13 +102,13 @@ class SQLiteTaskRepository(TaskRepository):
 
     def delete(self, task_id: int) -> None:
         with get_connection() as conn:
-            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            conn.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
             conn.commit()
 
     def reorder(self, task_ids: list[int]) -> None:
         with get_connection() as conn:
             for order, task_id in enumerate(task_ids):
-                conn.execute("UPDATE tasks SET sort_order=? WHERE id=?", (order, task_id))
+                conn.execute("UPDATE tasks SET sort_order=%s WHERE id=%s", (order, task_id))
             conn.commit()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -151,8 +145,8 @@ class SQLiteTaskRepository(TaskRepository):
         ids = list({t.user_id for t in tasks if t.user_id is not None})
         if not ids:
             return
-        ph = ",".join("?" * len(ids))
-        rows = conn.execute(f"SELECT * FROM users WHERE id IN ({ph})", ids).fetchall()
+        placeholders = ph(len(ids))
+        rows = conn.execute(f"SELECT * FROM users WHERE id IN ({placeholders})", ids).fetchall()
         by_id: dict[int, User] = {}
         for r in rows:
             keys = r.keys()
@@ -174,11 +168,11 @@ class SQLiteTaskRepository(TaskRepository):
         if not tasks:
             return
         ids = [t.id for t in tasks]
-        ph = ",".join("?" * len(ids))
+        placeholders = ph(len(ids))
         rows = conn.execute(
             f"""SELECT tt.task_id, t.id, t.name, t.color
                 FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
-                WHERE tt.task_id IN ({ph}) ORDER BY tt.task_id, t.id""",
+                WHERE tt.task_id IN ({placeholders}) ORDER BY tt.task_id, t.id""",
             ids,
         ).fetchall()
         by_task: dict[int, list[Tag]] = {t.id: [] for t in tasks}
@@ -192,8 +186,8 @@ class SQLiteTaskRepository(TaskRepository):
         ids = list({t.priority_id for t in tasks if t.priority_id is not None})
         if not ids:
             return
-        ph = ",".join("?" * len(ids))
-        rows = conn.execute(f"SELECT * FROM priorities WHERE id IN ({ph})", ids).fetchall()
+        placeholders = ph(len(ids))
+        rows = conn.execute(f"SELECT * FROM priorities WHERE id IN ({placeholders})", ids).fetchall()
         by_id = {r["id"]: Priority(id=r["id"], name=r["name"], icon=r["icon"], color=r["color"])
                  for r in rows}
         for task in tasks:
@@ -204,10 +198,10 @@ class SQLiteTaskRepository(TaskRepository):
         if not tasks:
             return
         ids = [t.id for t in tasks]
-        ph = ",".join("?" * len(ids))
+        placeholders = ph(len(ids))
         rows = conn.execute(
             f"""SELECT task_id, COUNT(*) as total, SUM(completed) as done
-                FROM todo_items WHERE task_id IN ({ph}) GROUP BY task_id""",
+                FROM todo_items WHERE task_id IN ({placeholders}) GROUP BY task_id""",
             ids,
         ).fetchall()
         counts = {r["task_id"]: (r["total"], r["done"] or 0) for r in rows}

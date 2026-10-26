@@ -1,11 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from backend.domain.entities import Priority, Project, User
 from backend.domain.repositories import ProjectRepository
-from backend.infrastructure.persistence.factory import get_connection
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+from backend.infrastructure.persistence.common.utils import ph, utcnow
+from backend.infrastructure.persistence.factory import (
+    get_connection,
+    idempotent_insert,
+    insert_returning_id,
+)
 
 
 class SQLiteProjectRepository(ProjectRepository):
@@ -19,7 +20,7 @@ class SQLiteProjectRepository(ProjectRepository):
 
     def get_by_id(self, project_id: int) -> Project | None:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+            row = conn.execute("SELECT * FROM projects WHERE id = %s", (project_id,)).fetchone()
             if row is None:
                 return None
             project = self._to_entity(row)
@@ -28,15 +29,16 @@ class SQLiteProjectRepository(ProjectRepository):
 
     def create(self, project: Project) -> Project:
         with get_connection() as conn:
-            cursor = conn.execute(
+            new_id = insert_returning_id(
+                conn,
                 """INSERT INTO projects
                        (name, description, icon, color, owner_id, leader_id, priority_id)
-                   VALUES (?,?,?,?,?,?,?)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
                 (project.name, project.description, project.icon, project.color,
                  project.owner_id, project.leader_id, project.priority_id),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM projects WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            row = conn.execute("SELECT * FROM projects WHERE id = %s", (new_id,)).fetchone()
             result = self._to_entity(row)
             self._load_relations(conn, [result])
         return result
@@ -45,22 +47,22 @@ class SQLiteProjectRepository(ProjectRepository):
         with get_connection() as conn:
             conn.execute(
                 """UPDATE projects
-                   SET name=?, description=?, icon=?, color=?,
-                       owner_id=?, leader_id=?, priority_id=?, modified_at=?
-                   WHERE id=?""",
+                   SET name=%s, description=%s, icon=%s, color=%s,
+                       owner_id=%s, leader_id=%s, priority_id=%s, modified_at=%s
+                   WHERE id=%s""",
                 (project.name, project.description, project.icon, project.color,
                  project.owner_id, project.leader_id, project.priority_id,
-                 _now(), project.id),
+                 utcnow(), project.id),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM projects WHERE id = ?", (project.id,)).fetchone()
+            row = conn.execute("SELECT * FROM projects WHERE id = %s", (project.id,)).fetchone()
             result = self._to_entity(row)
             self._load_relations(conn, [result])
         return result
 
     def delete(self, project_id: int) -> None:
         with get_connection() as conn:
-            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
             conn.commit()
 
     # ── Members ──────────────────────────────────────────────────────────────
@@ -70,15 +72,16 @@ class SQLiteProjectRepository(ProjectRepository):
             rows = conn.execute(
                 """SELECT u.* FROM users u
                    JOIN project_members pm ON pm.user_id = u.id
-                   WHERE pm.project_id = ? ORDER BY u.id""",
+                   WHERE pm.project_id = %s ORDER BY u.id""",
                 (project_id,),
             ).fetchall()
         return [_user_from_row(r) for r in rows]
 
     def add_member(self, project_id: int, user_id: int) -> None:
         with get_connection() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO project_members (project_id, user_id) VALUES (?,?)",
+            idempotent_insert(
+                conn,
+                "INSERT INTO project_members (project_id, user_id) VALUES (%s,%s)",
                 (project_id, user_id),
             )
             conn.commit()
@@ -86,7 +89,7 @@ class SQLiteProjectRepository(ProjectRepository):
     def remove_member(self, project_id: int, user_id: int) -> None:
         with get_connection() as conn:
             conn.execute(
-                "DELETE FROM project_members WHERE project_id=? AND user_id=?",
+                "DELETE FROM project_members WHERE project_id=%s AND user_id=%s",
                 (project_id, user_id),
             )
             conn.commit()
@@ -94,7 +97,7 @@ class SQLiteProjectRepository(ProjectRepository):
     def is_member(self, project_id: int, user_id: int) -> bool:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT 1 FROM project_members WHERE project_id=? AND user_id=?",
+                "SELECT 1 FROM project_members WHERE project_id=%s AND user_id=%s",
                 (project_id, user_id),
             ).fetchone()
         return row is not None
@@ -105,7 +108,7 @@ class SQLiteProjectRepository(ProjectRepository):
                 """SELECT DISTINCT p.*
                    FROM projects p
                    LEFT JOIN project_members pm ON pm.project_id = p.id
-                   WHERE p.owner_id = ? OR p.leader_id = ? OR pm.user_id = ?
+                   WHERE p.owner_id = %s OR p.leader_id = %s OR pm.user_id = %s
                    ORDER BY p.id""",
                 (user_id, user_id, user_id),
             ).fetchall()
@@ -152,9 +155,9 @@ class SQLiteProjectRepository(ProjectRepository):
 
         users_by_id: dict[int, User] = {}
         if user_ids:
-            ph = ",".join("?" * len(user_ids))
+            placeholders = ph(len(user_ids))
             rows = conn.execute(
-                f"SELECT * FROM users WHERE id IN ({ph})", list(user_ids)
+                f"SELECT * FROM users WHERE id IN ({placeholders})", list(user_ids)
             ).fetchall()
             users_by_id = {r["id"]: _user_from_row(r) for r in rows}
 
@@ -165,9 +168,9 @@ class SQLiteProjectRepository(ProjectRepository):
         # Load priorities
         priority_ids = list({p.priority_id for p in projects if p.priority_id is not None})
         if priority_ids:
-            ph = ",".join("?" * len(priority_ids))
+            placeholders = ph(len(priority_ids))
             rows = conn.execute(
-                f"SELECT * FROM priorities WHERE id IN ({ph})", priority_ids
+                f"SELECT * FROM priorities WHERE id IN ({placeholders})", priority_ids
             ).fetchall()
             prio_by_id = {r["id"]: Priority(id=r["id"], name=r["name"], icon=r["icon"], color=r["color"])
                           for r in rows}
@@ -177,11 +180,11 @@ class SQLiteProjectRepository(ProjectRepository):
         # Load members
         if projects:
             pids = [p.id for p in projects]
-            ph = ",".join("?" * len(pids))
+            placeholders = ph(len(pids))
             rows = conn.execute(
                 f"""SELECT pm.project_id, u.*
                     FROM project_members pm JOIN users u ON u.id = pm.user_id
-                    WHERE pm.project_id IN ({ph}) ORDER BY u.id""",
+                    WHERE pm.project_id IN ({placeholders}) ORDER BY u.id""",
                 pids,
             ).fetchall()
             members_by_proj: dict[int, list[User]] = {p.id: [] for p in projects}

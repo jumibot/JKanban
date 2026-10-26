@@ -1,7 +1,7 @@
 from datetime import datetime
 from backend.domain.entities import Resource
 from backend.domain.repositories import ResourceRepository
-from backend.infrastructure.persistence.factory import get_connection
+from backend.infrastructure.persistence.factory import get_connection, insert_returning_id
 
 
 class SQLiteResourceRepository(ResourceRepository):
@@ -13,37 +13,38 @@ class SQLiteResourceRepository(ResourceRepository):
 
     def get_by_id(self, resource_id: int) -> Resource | None:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM resources WHERE id = ?", (resource_id,)).fetchone()
+            row = conn.execute("SELECT * FROM resources WHERE id = %s", (resource_id,)).fetchone()
         return self._to_entity(row) if row else None
 
     def get_by_email(self, email: str) -> Resource | None:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM resources WHERE email = ?", (email,)).fetchone()
+            row = conn.execute("SELECT * FROM resources WHERE email = %s", (email,)).fetchone()
         return self._to_entity(row) if row else None
 
     def create(self, resource: Resource) -> Resource:
         with get_connection() as conn:
-            cursor = conn.execute(
-                "INSERT INTO resources (name, email, avatar_url) VALUES (?, ?, ?)",
+            new_id = insert_returning_id(
+                conn,
+                "INSERT INTO resources (name, email, avatar_url) VALUES (%s, %s, %s)",
                 (resource.name, resource.email, resource.avatar_url),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM resources WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            row = conn.execute("SELECT * FROM resources WHERE id = %s", (new_id,)).fetchone()
         return self._to_entity(row)
 
     def update(self, resource: Resource) -> Resource:
         with get_connection() as conn:
             conn.execute(
-                "UPDATE resources SET name = ?, email = ?, avatar_url = ? WHERE id = ?",
+                "UPDATE resources SET name = %s, email = %s, avatar_url = %s WHERE id = %s",
                 (resource.name, resource.email, resource.avatar_url, resource.id),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM resources WHERE id = ?", (resource.id,)).fetchone()
+            row = conn.execute("SELECT * FROM resources WHERE id = %s", (resource.id,)).fetchone()
         return self._to_entity(row)
 
     def delete(self, resource_id: int) -> None:
         with get_connection() as conn:
-            conn.execute("DELETE FROM resources WHERE id = ?", (resource_id,))
+            conn.execute("DELETE FROM resources WHERE id = %s", (resource_id,))
             conn.commit()
 
     @staticmethod

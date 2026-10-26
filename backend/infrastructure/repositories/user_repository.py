@@ -1,11 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from backend.domain.entities import User
 from backend.domain.repositories import UserRepository
-from backend.infrastructure.persistence.factory import get_connection
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+from backend.infrastructure.persistence.common.utils import utcnow
+from backend.infrastructure.persistence.factory import get_connection, insert_returning_id
 
 
 class SQLiteUserRepository(UserRepository):
@@ -17,45 +14,46 @@ class SQLiteUserRepository(UserRepository):
 
     def get_by_id(self, user_id: int) -> User | None:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE id = %s", (user_id,)).fetchone()
         return self._to_entity(row) if row else None
 
     def get_by_email(self, email: str) -> User | None:
         with get_connection() as conn:
-            row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
         return self._to_entity(row) if row else None
 
     def create(self, user: User) -> User:
         with get_connection() as conn:
-            cursor = conn.execute(
-                "INSERT INTO users (name, email, password_hash, avatar_url) VALUES (?,?,?,?)",
+            new_id = insert_returning_id(
+                conn,
+                "INSERT INTO users (name, email, password_hash, avatar_url) VALUES (%s,%s,%s,%s)",
                 (user.name, user.email, user.password_hash, user.avatar_url),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE id = %s", (new_id,)).fetchone()
         return self._to_entity(row)
 
     def update(self, user: User) -> User:
         with get_connection() as conn:
             conn.execute(
                 """UPDATE users
-                   SET name=?, email=?, password_hash=?, avatar_url=?, is_admin=?, modified_at=?
-                   WHERE id=?""",
-                (user.name, user.email, user.password_hash, user.avatar_url, int(user.is_admin), _now(), user.id),
+                   SET name=%s, email=%s, password_hash=%s, avatar_url=%s, is_admin=%s, modified_at=%s
+                   WHERE id=%s""",
+                (user.name, user.email, user.password_hash, user.avatar_url, int(user.is_admin), utcnow(), user.id),
             )
             conn.commit()
-            row = conn.execute("SELECT * FROM users WHERE id = ?", (user.id,)).fetchone()
+            row = conn.execute("SELECT * FROM users WHERE id = %s", (user.id,)).fetchone()
         return self._to_entity(row)
 
     def delete(self, user_id: int) -> None:
         with get_connection() as conn:
-            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
             conn.commit()
 
     def count_owned_projects(self, user_id: int) -> int:
         with get_connection() as conn:
             return conn.execute(
-                "SELECT COUNT(*) FROM projects WHERE owner_id = ?", (user_id,)
+                "SELECT COUNT(*) FROM projects WHERE owner_id = %s", (user_id,)
             ).fetchone()[0]
 
     @staticmethod

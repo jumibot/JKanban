@@ -150,20 +150,20 @@ def project_deletion_preview(
     _require_owner(project, current_user.id)
     with get_connection() as conn:
         groups_count = conn.execute(
-            "SELECT COUNT(*) FROM groups WHERE project_id = ?", (project_id,)
+            "SELECT COUNT(*) FROM groups WHERE project_id = %s", (project_id,)
         ).fetchone()[0]
         tasks_count = conn.execute(
-            "SELECT COUNT(*) FROM tasks t JOIN groups g ON t.group_id = g.id WHERE g.project_id = ?",
+            "SELECT COUNT(*) FROM tasks t JOIN groups g ON t.group_id = g.id WHERE g.project_id = %s",
             (project_id,),
         ).fetchone()[0]
         tags_count = conn.execute(
-            "SELECT COUNT(*) FROM tags WHERE project_id = ?", (project_id,)
+            "SELECT COUNT(*) FROM tags WHERE project_id = %s", (project_id,)
         ).fetchone()[0]
         priorities_count = conn.execute(
-            "SELECT COUNT(*) FROM priorities WHERE project_id = ?", (project_id,)
+            "SELECT COUNT(*) FROM priorities WHERE project_id = %s", (project_id,)
         ).fetchone()[0]
         members_count = conn.execute(
-            "SELECT COUNT(*) FROM project_members WHERE project_id = ?", (project_id,)
+            "SELECT COUNT(*) FROM project_members WHERE project_id = %s", (project_id,)
         ).fetchone()[0]
     return {
         "project": ProjectResponse.from_entity(project),
@@ -192,7 +192,7 @@ def cascade_delete_project(
     if not verify_password(body.owner_password, current_user.password_hash):
         raise HTTPException(status_code=403, detail="Contraseña incorrecta")
     with get_connection() as conn:
-        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
         conn.commit()
 
 
