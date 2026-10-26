@@ -67,3 +67,8 @@ class UserUseCases:
         if count > 0:
             raise UserOwnsProjects(user_id, count)
         self._users.delete(user_id)
+
+    def delete_cascade(self, user_id: int) -> None:
+        """Delete the user together with every project they own."""
+        self.get_by_id(user_id)
+        self._users.delete_with_owned_projects(user_id)

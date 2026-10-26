@@ -11,13 +11,10 @@
 - [Flujo completo de una request](#flujo-completo-de-una-request)
 - [Inyección de dependencias](#inyección-de-dependencias-dependenciespy)
 - [Patrones notables](#patrones-notables)
-- [Anexo: migrar de SQLite a PostgreSQL](#anexo-migrar-de-sqlite-a-postgresql)
-  - [1. Dependencia](#1-dependencia)
-  - [2. infrastructure/database.py](#2-infrastructuredatabasepy)
-  - [3. Repositorios — diferencias SQL](#3-infrastructurerepositories---diferencias-sql)
-  - [4. Schema DDL](#4-schema-ddl-infrastructuredatabasepy---init_db)
-  - [5. Ajuste de booleanos](#5-_to_entity---ajuste-de-booleanos)
-  - [Resumen del alcance](#resumen-del-alcance-del-cambio)
+- [Anexo: añadir un nuevo engine de base de datos](#anexo-añadir-un-nuevo-engine-de-base-de-datos)
+  - [Cómo está estructurada la capa de persistencia](#cómo-está-estructurada-la-capa-de-persistencia)
+  - [Pasos para añadir PostgreSQL](#pasos-para-añadir-postgresql)
+  - [Resumen del alcance](#resumen-del-alcance)
 
 ---
 
@@ -83,8 +80,8 @@ class ProjectUseCases:
 
 | Módulo | Responsabilidad |
 |--------|----------------|
-| `user_use_cases.py` | Registro, login, CRUD usuarios, hashing PBKDF2 |
-| `project_use_cases.py` | CRUD proyectos, gestión de miembros, cálculo de roles |
+| `user_use_cases.py` | Registro, login, CRUD usuarios, hashing PBKDF2, borrado en cascada (usuario + proyectos propios) |
+| `project_use_cases.py` | CRUD proyectos, gestión de miembros, cálculo de roles, vista previa y borrado en cascada |
 | `group_use_cases.py` | CRUD grupos kanban, reordenación de columnas |
 | `task_use_cases.py` | CRUD tareas, asignación, reordenación dentro de grupo |
 | `todo_use_cases.py` | CRUD subtareas (checklist de tarea) |
@@ -100,13 +97,13 @@ class ProjectUseCases:
 | Archivo / carpeta | Responsabilidad |
 |-------------------|----------------|
 | `database.py` | Alias público de dos líneas: re-exporta `get_connection` e `init_db` desde el factory. Los imports existentes no necesitan cambiar. |
-| `persistence/factory.py` | Despacha por engine (`DB_ENGINE`): instancia la conexión y orquesta schema + migraciones + seed del engine activo. Añadir un nuevo engine solo requiere extender este archivo. |
-| `persistence/sqlite/` | Implementación SQLite completa: `connection.py` (wrapper con traducción `%s`→`?`), `schema.py` (DDL), `migrations.py` (migraciones ad-hoc no destructivas), `seed.py` (datos demo), `adapter.py` (helpers `insert_returning_id`, etc.). |
-| `persistence/common/` | Utilidades agnósticas de engine: `utcnow()`, `ph(n)` para placeholders portables, helpers de datetime. |
+| `persistence/factory.py` | Despacha por engine (`DB_ENGINE`): da la conexión y los helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`, `reset_tables`) del engine activo, y orquesta schema + migraciones + seed. Único punto de import para el resto del código. Añadir un engine solo requiere extender este archivo (y crear su carpeta). |
+| `persistence/sqlite/` | Implementación SQLite completa: `connection.py` (wrapper con traducción `%s`→`?`; cierra la conexión al salir del `with`), `schema.py` (DDL), `migrations.py` (migraciones ad-hoc no destructivas), `seed.py` (datos demo), `adapter.py` (helpers de dialecto). |
+| `persistence/common/` | Utilidades agnósticas de engine: `utcnow()`, `ph(n)` para placeholders portables, `row_opt()` / `row_dt()` / `to_datetime()` para leer filas de cualquier driver. |
 | `jwt_handler.py` | Codifica y decodifica tokens JWT HS256 con `PyJWT`. Expone `create_access_token(user_id)` y `decode_token(token) → user_id`. |
-| `repositories/` | Una clase por entidad (`SQLiteUserRepository`, `SQLiteProjectRepository`, etc.) que implementa el ABC correspondiente de `domain/repositories.py`. Obtienen la conexión a través del factory, no directamente de sqlite3. |
+| `repositories/` | Una clase por entidad (`SqlUserRepository`, `SqlProjectRepository`, etc.) que implementa el ABC correspondiente de `domain/repositories.py`. Importan conexión y helpers solo desde el factory; SQL con placeholders `%s`, sin nada específico de SQLite (lo verifica `tests/test_persistence_portability.py`). Son las únicas clases que ejecutan SQL: routers y casos de uso nunca acceden a la BD directamente. |
 
-**Regla:** esta capa puede importar `domain/` y librerías externas (sqlite3, PyJWT). No importa `application/` ni `interfaces/`.
+**Regla:** esta capa puede importar `domain/` y librerías externas (PyJWT; `sqlite3` solo dentro de `persistence/sqlite/`). No importa `application/` ni `interfaces/`.
 
 ---
 
@@ -120,7 +117,7 @@ class ProjectUseCases:
 | `schemas.py` | Modelos Pydantic para validar requests y serializar responses. Tienen métodos `.from_entity()` para convertir desde entidades de dominio. |
 | `dependencies.py` | Fábricas de FastAPI `Depends()`: `get_current_user` (valida JWT), `require_admin`, `require_project_access`, `require_project_leader`, y factories que instancian repositorios y use cases. |
 
-**Regla:** esta capa puede importar `application/`, `domain/` e `infrastructure/`. No contiene lógica de negocio.
+**Regla:** esta capa puede importar `application/` y `domain/`. De `infrastructure/` solo importa repositorios y `jwt_handler` (para instanciarlos en `dependencies.py` y los routers); **nunca** `persistence` ni `get_connection`: todo acceso a BD pasa por un caso de uso. No contiene lógica de negocio.
 
 ---
 
@@ -130,7 +127,7 @@ class ProjectUseCases:
 POST /tasks/  {group_id: 5, title: "Nueva tarea"}
   │
   ├─ FastAPI extrae el JWT del header
-  ├─ Depends(get_current_user) → decode_token() → SQLiteUserRepository.get_by_id()
+  ├─ Depends(get_current_user) → decode_token() → SqlUserRepository.get_by_id()
   ├─ Pydantic valida el body → TaskCreate
   │
   ├─ router/tasks.py llama a task_use_cases.create(group_id=5, title=..., ...)
@@ -171,7 +168,9 @@ FastAPI `Depends()` actúa como el contenedor de DI. Cada router declara sus dep
 - **Audit trail automático:** `created_at`, `modified_at`, `created_by`, `modified_by` se rellenan en los repositorios de infraestructura, no en el dominio.
 - **Hard deletes + CASCADE:** no hay soft deletes; las FK tienen `ON DELETE CASCADE` / `ON DELETE SET NULL` según el caso.
 - **Schemas ≠ Entities:** los schemas Pydantic solo existen en `interfaces/`. La conversión ocurre con `.from_entity()`, nunca en el dominio.
-- **Primer admin automático:** si no existe ningún admin al arrancar, `_migrate()` promueve el primer usuario.
+- **Primer admin automático:** si no existe ningún admin al arrancar, `migrate()` (`persistence/sqlite/migrations.py`) promueve el primer usuario.
+- **Conexiones de vida corta:** cada método de repositorio abre su conexión con `with get_connection() as conn:` y la cierra al terminar (commit, o rollback si hay error).
+- **Portabilidad vigilada:** `tests/test_persistence_portability.py` falla si aparece SQL específico de SQLite en los repositorios o acceso a BD fuera de ellos.
 
 ---
 
@@ -268,15 +267,11 @@ El wrapper expone la misma superficie `execute`/`executemany` que `SQLiteConnect
 #### 3. Extender `factory.py`
 
 ```python
-def get_connection():
-    engine = db_settings.engine
-    if engine == "sqlite":
-        from backend.infrastructure.persistence.sqlite.connection import get_connection as _sqlite
-        return _sqlite()
-    if engine == "postgres":
-        from backend.infrastructure.persistence.postgres.connection import get_connection as _pg
-        return _pg()
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
+# get_connection() y los helpers de dialecto despachan con este mapa
+_ENGINE_PACKAGES = {
+    "sqlite": "backend.infrastructure.persistence.sqlite",
+    "postgres": "backend.infrastructure.persistence.postgres",   # ← añadir
+}
 
 def init_engine() -> None:
     engine = db_settings.engine
@@ -292,7 +287,7 @@ def init_engine() -> None:
             conn.commit()
         seed_db()
         return
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
+    raise _unsupported(engine)
 ```
 
 #### 4. Activar el engine
@@ -310,6 +305,6 @@ DB_ENGINE=postgres DATABASE_URL=postgresql://user:pass@host:5432/jkanban uvicorn
 | `interfaces/` | **Ninguno** |
 | `infrastructure/repositories/` | **Ninguno** — ya usan el factory |
 | `infrastructure/database.py` | **Ninguno** — es un alias |
-| `infrastructure/persistence/factory.py` | Añadir rama `postgres` en `get_connection` e `init_engine` |
+| `infrastructure/persistence/factory.py` | Añadir `postgres` a `_ENGINE_PACKAGES` y una rama en `init_engine` |
 | `infrastructure/persistence/postgres/` | Crear: `connection.py`, `schema.py`, `migrations.py`, `seed.py`, `adapter.py` |
 | `requirements.txt` | Añadir `psycopg2-binary` |

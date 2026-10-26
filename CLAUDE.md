@@ -62,13 +62,21 @@ SPA Vanilla JS sin bundler. Módulos cargados como `<script src>` en orden en `i
 
 ## Base de datos
 
-Motor configurable via `DB_ENGINE` (default: `sqlite`). Sin ORM, queries SQL manuales en `infrastructure/repositories/`.
+Motor seleccionado con `DB_ENGINE` (default y **único implementado hoy: `sqlite`**). Sin ORM, queries SQL manuales en `infrastructure/repositories/`.
 
-- `?` como placeholder en repos actuales (SQLite); la capa de conexión también acepta `%s` portable
-- `cursor.lastrowid` para obtener el ID insertado
-- `PRAGMA foreign_keys = ON` activado por conexión (en `persistence/sqlite/connection.py`)
-- Migraciones no destructivas en `infrastructure/persistence/sqlite/migrations.py`
-- Dispatch de engine en `infrastructure/persistence/factory.py` — añadir un engine nuevo solo requiere extender ese archivo
+SQL portable en repositorios y routers (lo verifica `tests/test_persistence_portability.py`):
+
+- Importar solo desde `persistence.factory`: `get_connection`, `insert_returning_id`, `idempotent_insert`, `map_integrity_error`. Nunca desde `persistence.sqlite` ni `import sqlite3`.
+- `%s` como placeholder (el wrapper SQLite lo traduce a `?`); `ph(n)` de `persistence/common/utils.py` para `IN (...)`
+- `insert_returning_id(conn, sql, params)` para obtener el ID insertado (no `cursor.lastrowid`)
+- `idempotent_insert(...)` en vez de `INSERT OR IGNORE`; `with map_integrity_error(lambda: DomainExc(...)):` en vez de capturar `sqlite3.IntegrityError`
+- Timestamps con `utcnow()` al escribir y `row_dt()` al leer (acepta `str` o `datetime`); nada de `%` literal en el SQL (pasar patrones `LIKE` como parámetro)
+- Booleanos: escribir `bool(...)`, nunca `int(...)`; sumar con `SUM(CASE WHEN col THEN 1 ELSE 0 END)`
+- Columnas por nombre: `SELECT COUNT(*) AS n` → `row["n"]`, nunca `row[0]`
+- Solo los repositorios (`Sql*Repository`) ejecutan SQL: routers, casos de uso y tests nunca usan `get_connection`
+- Usar siempre `with get_connection() as conn:` — al salir hace commit/rollback **y cierra** la conexión
+
+Específico de SQLite (dentro de `persistence/sqlite/`): `PRAGMA foreign_keys = ON` por conexión, migraciones no destructivas en `migrations.py`. Para añadir un engine: `docs/adding-a-db-engine.md`.
 
 ---
 
@@ -80,9 +88,11 @@ pytest -v       # con detalle
 pytest tests/test_projects.py  # un módulo
 ```
 
-- BD en memoria (`:memory:`), independiente de `tasks.db`
+- BD SQLite en fichero temporal (`conftest.py` fija `SQLITE_PATH`), independiente de `tasks.db`
 - Fixture `auth` → usuario normal; `admin_auth` → usuario admin
-- `clean_db` (autouse) trunca tablas antes de cada test
+- `clean_db` (autouse) vacía tablas y reinicia IDs antes de cada test (`factory.reset_tables()`)
+- Los tests no ejecutan SQL: preparan datos vía API o casos de uso
+- `tests/test_persistence_portability.py` vigila las reglas de la sección *Base de datos*
 
 ---
 

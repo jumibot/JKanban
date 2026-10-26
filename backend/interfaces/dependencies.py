@@ -10,13 +10,13 @@ from backend.application.user_use_cases import UserUseCases
 from backend.domain.entities import User
 from backend.domain.exceptions import ProjectNotFound, UserNotInProject
 from backend.infrastructure.jwt_handler import decode_access_token
-from backend.infrastructure.repositories.group_repository import SQLiteGroupRepository
-from backend.infrastructure.repositories.priority_repository import SQLitePriorityRepository
-from backend.infrastructure.repositories.project_repository import SQLiteProjectRepository
-from backend.infrastructure.repositories.tag_repository import SQLiteTagRepository
-from backend.infrastructure.repositories.task_repository import SQLiteTaskRepository
-from backend.infrastructure.repositories.todo_repository import SQLiteTodoRepository
-from backend.infrastructure.repositories.user_repository import SQLiteUserRepository
+from backend.infrastructure.repositories.group_repository import SqlGroupRepository
+from backend.infrastructure.repositories.priority_repository import SqlPriorityRepository
+from backend.infrastructure.repositories.project_repository import SqlProjectRepository
+from backend.infrastructure.repositories.tag_repository import SqlTagRepository
+from backend.infrastructure.repositories.task_repository import SqlTaskRepository
+from backend.infrastructure.repositories.todo_repository import SqlTodoRepository
+from backend.infrastructure.repositories.user_repository import SqlUserRepository
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -26,7 +26,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         user_id = decode_access_token(token)
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user = SQLiteUserRepository().get_by_id(user_id)
+    user = SqlUserRepository().get_by_id(user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     return user
@@ -34,13 +34,16 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
 
 # ── Project access helpers ────────────────────────────────────────────────────
 
-def _project_uc() -> ProjectUseCases:
+def get_project_use_cases() -> ProjectUseCases:
     return ProjectUseCases(
-        project_repo=SQLiteProjectRepository(),
-        group_repo=SQLiteGroupRepository(),
-        user_repo=SQLiteUserRepository(),
-        priority_repo=SQLitePriorityRepository(),
+        project_repo=SqlProjectRepository(),
+        group_repo=SqlGroupRepository(),
+        user_repo=SqlUserRepository(),
+        priority_repo=SqlPriorityRepository(),
     )
+
+
+_project_uc = get_project_use_cases
 
 
 def require_admin(current_user: User) -> None:
@@ -88,41 +91,41 @@ def get_user_project_ids(user_id: int) -> set[int]:
 
 
 def get_user_use_cases() -> UserUseCases:
-    return UserUseCases(user_repo=SQLiteUserRepository())
+    return UserUseCases(user_repo=SqlUserRepository())
 
 
 def get_task_use_cases() -> TaskUseCases:
     return TaskUseCases(
-        task_repo=SQLiteTaskRepository(),
-        group_repo=SQLiteGroupRepository(),
-        user_repo=SQLiteUserRepository(),
-        priority_repo=SQLitePriorityRepository(),
+        task_repo=SqlTaskRepository(),
+        group_repo=SqlGroupRepository(),
+        user_repo=SqlUserRepository(),
+        priority_repo=SqlPriorityRepository(),
     )
 
 
 def get_group_use_cases() -> GroupUseCases:
     return GroupUseCases(
-        group_repo=SQLiteGroupRepository(),
-        task_repo=SQLiteTaskRepository(),
-        project_repo=SQLiteProjectRepository(),
+        group_repo=SqlGroupRepository(),
+        task_repo=SqlTaskRepository(),
+        project_repo=SqlProjectRepository(),
     )
 
 
 def get_todo_use_cases() -> TodoUseCases:
     return TodoUseCases(
-        todo_repo=SQLiteTodoRepository(),
-        task_repo=SQLiteTaskRepository(),
+        todo_repo=SqlTodoRepository(),
+        task_repo=SqlTaskRepository(),
     )
 
 
 def get_priority_use_cases():
     from backend.application.priority_use_cases import PriorityUseCases
-    return PriorityUseCases(priority_repo=SQLitePriorityRepository())
+    return PriorityUseCases(priority_repo=SqlPriorityRepository())
 
 
 def get_tag_use_cases() -> TagUseCases:
     return TagUseCases(
-        tag_repo=SQLiteTagRepository(),
-        task_repo=SQLiteTaskRepository(),
-        group_repo=SQLiteGroupRepository(),
+        tag_repo=SqlTagRepository(),
+        task_repo=SqlTaskRepository(),
+        group_repo=SqlGroupRepository(),
     )

@@ -36,15 +36,21 @@ JKanban es una aplicación web de gestión de tareas tipo Kanban multiusuario. O
 
 ## Estructura de carpetas
 
+Estructura de la rama `develop` (en `main` / `release/*` el backend está en `app/`).
+
 ```
 JKanban/
-├── app/                        # Backend
+├── backend/                    # Backend
+│   ├── main.py                 # App FastAPI: registra routers y sirve frontend/
+│   ├── config.py               # Settings por variables de entorno (DB_ENGINE, SQLITE_PATH)
 │   ├── domain/                 # Entidades, ABCs repositorios, excepciones
 │   ├── application/            # Casos de uso (lógica de negocio)
-│   ├── infrastructure/         # SQLite, JWT, repos concretos
+│   ├── infrastructure/
+│   │   ├── persistence/        # factory (dispatch por engine), common/, sqlite/
+│   │   ├── repositories/       # Sql*Repository: único sitio con SQL
+│   │   └── jwt_handler.py
 │   └── interfaces/             # Routers FastAPI, schemas Pydantic, DI
-│       └── static/             # Archivos servidos (apunta a frontend/)
-├── frontend/                   # Fuente del frontend
+├── frontend/                   # SPA servida como estáticos
 │   ├── index.html              # HTML + CSS embebido (TailwindCSS)
 │   └── js/
 │       ├── state.js            # Estado global S
@@ -52,7 +58,7 @@ JKanban/
 │       ├── views/              # dashboard, board, team, tags, priorities
 │       ├── modals/             # base, project, group, task, tag, priority, user, subtask
 │       └── dnd.js, delete.js
-├── tests/                      # Pytest (un archivo por recurso)
+├── tests/                      # Pytest: un archivo por recurso + guardas de portabilidad
 ├── scripts/start-dev.ps1       # Script arranque Windows
 ├── docs/                       # Esta documentación técnica
 └── backend/requirements.txt
@@ -63,7 +69,7 @@ JKanban/
 ## Arranque en desarrollo
 
 ```bash
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 # o en Windows:
 .\scripts\start-dev.ps1
 ```
@@ -87,11 +93,12 @@ Este documento es el punto de entrada. Los documentos siguientes cubren cada ár
 
 | Documento | Contenido |
 |-----------|-----------|
-| [Arquitectura del backend](architecture.md) | Clean Architecture: responsabilidades de cada capa, flujo de request, inyección de dependencias, patrones. Incluye anexo de migración SQLite → PostgreSQL. |
+| [Arquitectura del backend](architecture.md) | Clean Architecture: responsabilidades de cada capa, flujo de request, inyección de dependencias, patrones. Incluye anexo sobre cómo añadir un engine de BD. |
 | [Modelo de datos](data-model.md) | Entidades con todos sus campos, tablas de unión, relaciones FK y comportamiento de cascadas. |
 | [API REST](api.md) | Referencia completa de endpoints: parámetros, body, formato de respuesta y errores posibles por endpoint. |
 | [Autenticación y permisos](auth-permissions.md) | JWT, hashing de contraseñas, sistema de roles (owner/leader/member/admin), tabla de permisos y flujos de login/logout. |
 | [Frontend](frontend.md) | Arquitectura SPA: estado global, router hash-based, pipeline de render, sistema de modales, módulos JS y seguridad. |
 | [Reglas de negocio](business-rules.md) | 21 excepciones de dominio con su código HTTP, restricciones por recurso y comportamiento SET NULL vs CASCADE. |
 | [Tests](testing.md) | Setup de fixtures, archivos de test, patrón de test típico y comandos de ejecución. |
-| [Añadir un motor de BD](adding-a-db-engine.md) | Guía paso a paso para conectar un engine nuevo (PostgreSQL, MySQL…): checklist, código de cada módulo del adapter y tabla de diferencias SQL. |
+| [Aislamiento de BD en tests](testing-db.md) | Cómo `conftest.py` redirige la BD a un fichero temporal, ciclo de vida de `clean_db`, variables de entorno y qué no hacer. |
+| [Añadir un motor de BD](adding-a-db-engine.md) | Reglas de SQL portable, guía paso a paso para conectar un engine nuevo (PostgreSQL, MySQL…): checklist, código de cada módulo del adapter y tabla de diferencias SQL. |

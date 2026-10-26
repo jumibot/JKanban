@@ -8,11 +8,10 @@ from backend.domain.exceptions import (
     MemberAlreadyInProject, MemberNotInProject,
     PriorityNotFound, ProjectHasGroups, ProjectLeaderRequired, ProjectNotFound, UserNotFound, UserNotInProject,
 )
-from backend.infrastructure.persistence.factory import get_connection
-from backend.infrastructure.repositories.group_repository import SQLiteGroupRepository
-from backend.infrastructure.repositories.priority_repository import SQLitePriorityRepository
-from backend.infrastructure.repositories.project_repository import SQLiteProjectRepository
-from backend.infrastructure.repositories.user_repository import SQLiteUserRepository
+from backend.infrastructure.repositories.group_repository import SqlGroupRepository
+from backend.infrastructure.repositories.priority_repository import SqlPriorityRepository
+from backend.infrastructure.repositories.project_repository import SqlProjectRepository
+from backend.infrastructure.repositories.user_repository import SqlUserRepository
 from backend.interfaces.dependencies import get_current_user
 from backend.interfaces.schemas import (
     GroupResponse, ProjectCreate, ProjectResponse, ProjectRoleResponse,
@@ -28,10 +27,10 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 def _use_cases() -> ProjectUseCases:
     return ProjectUseCases(
-        project_repo=SQLiteProjectRepository(),
-        group_repo=SQLiteGroupRepository(),
-        user_repo=SQLiteUserRepository(),
-        priority_repo=SQLitePriorityRepository(),
+        project_repo=SqlProjectRepository(),
+        group_repo=SqlGroupRepository(),
+        user_repo=SqlUserRepository(),
+        priority_repo=SqlPriorityRepository(),
     )
 
 
@@ -142,36 +141,18 @@ def project_deletion_preview(
 ):
     """Returns counts of everything that will be removed by a cascade delete.
     Only the project owner can call this."""
-    uc = _use_cases()
     try:
-        project = uc.get_by_id(project_id)
+        project, counts = _use_cases().get_deletion_preview(project_id)
     except ProjectNotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     _require_owner(project, current_user.id)
-    with get_connection() as conn:
-        groups_count = conn.execute(
-            "SELECT COUNT(*) FROM groups WHERE project_id = ?", (project_id,)
-        ).fetchone()[0]
-        tasks_count = conn.execute(
-            "SELECT COUNT(*) FROM tasks t JOIN groups g ON t.group_id = g.id WHERE g.project_id = ?",
-            (project_id,),
-        ).fetchone()[0]
-        tags_count = conn.execute(
-            "SELECT COUNT(*) FROM tags WHERE project_id = ?", (project_id,)
-        ).fetchone()[0]
-        priorities_count = conn.execute(
-            "SELECT COUNT(*) FROM priorities WHERE project_id = ?", (project_id,)
-        ).fetchone()[0]
-        members_count = conn.execute(
-            "SELECT COUNT(*) FROM project_members WHERE project_id = ?", (project_id,)
-        ).fetchone()[0]
     return {
         "project": ProjectResponse.from_entity(project),
-        "groups_count": groups_count,
-        "tasks_count": tasks_count,
-        "tags_count": tags_count,
-        "priorities_count": priorities_count,
-        "members_count": members_count,
+        "groups_count": counts.groups,
+        "tasks_count": counts.tasks,
+        "tags_count": counts.tags,
+        "priorities_count": counts.priorities,
+        "members_count": counts.members,
     }
 
 
@@ -191,9 +172,7 @@ def cascade_delete_project(
     _require_owner(project, current_user.id)
     if not verify_password(body.owner_password, current_user.password_hash):
         raise HTTPException(status_code=403, detail="Contraseña incorrecta")
-    with get_connection() as conn:
-        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-        conn.commit()
+    uc.delete_cascade(project_id)
 
 
 # ── Members ──────────────────────────────────────────────────────────────────

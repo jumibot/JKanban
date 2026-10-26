@@ -13,7 +13,7 @@
 
 ---
 
-## Excepciones de dominio (`app/domain/exceptions.py`)
+## Excepciones de dominio (`backend/domain/exceptions.py`)
 
 Cada excepción de dominio se mapea a un código HTTP en los routers de la capa de interfaces.
 

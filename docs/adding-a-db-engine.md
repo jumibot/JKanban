@@ -32,7 +32,19 @@ database.py  (alias público, 2 líneas)
             └── <nuevo-engine>/       ← lo que hay que crear
 ```
 
-Todos los repositorios obtienen su conexión a través de `factory.get_connection()`. El factory lee la variable de entorno `DB_ENGINE` y devuelve la conexión del adapter correspondiente. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.
+Todos los repositorios importan **solo desde `persistence.factory`**: `get_connection()` y los helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`; `reset_tables` lo usan solo los tests). El factory lee la variable de entorno `DB_ENGINE` y delega en los módulos `connection.py` / `adapter.py` del engine activo. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.
+
+### Reglas para el SQL de repositorios y routers
+
+- Placeholders siempre `%s` (el wrapper SQLite los traduce a `?`). Para `IN (...)` usar `ph(n)` de `persistence/common/utils.py`.
+- Nunca `cursor.lastrowid`, `INSERT OR IGNORE`, `import sqlite3` ni imports desde `persistence.sqlite`: usar los helpers del factory.
+- No escribir un `%` literal en el SQL (p.ej. `LIKE '%texto'`): pasar el patrón como parámetro (`LIKE %s`, `("%texto",)`).
+- Timestamps generados en Python con `utcnow()`, nunca `datetime('now')` / `NOW()` en el SQL. Leerlos con `row_dt()`, nunca `datetime.fromisoformat()`.
+- Booleanos: escribir `bool(...)`, nunca `int(...)`. Sumar con `SUM(CASE WHEN col THEN 1 ELSE 0 END)`.
+- Leer columnas por nombre (`SELECT COUNT(*) AS n` → `row["n"]`), nunca por posición (`row[0]`).
+- Solo los repositorios hablan con la BD: ni routers, ni casos de uso, ni dominio importan `persistence` o `get_connection`.
+
+`tests/test_persistence_portability.py` verifica estas reglas automáticamente en `repositories/`, `domain/`, `application/` e `interfaces/`.
 
 ---
 
@@ -41,13 +53,13 @@ Todos los repositorios obtienen su conexión a través de `factory.get_connectio
 ```
 [ ] 1. Crear backend/infrastructure/persistence/<engine>/
 [ ] 2. connection.py  — clase wrapper + get_connection()
-[ ] 3. adapter.py     — insert_returning_id, idempotent_insert, map_integrity_error
+[ ] 3. adapter.py     — insert_returning_id, idempotent_insert, map_integrity_error, reset_tables
 [ ] 4. schema.py      — create_schema(conn)
 [ ] 5. migrations.py  — migrate(conn)
 [ ] 6. seed.py        — seed_db()
-[ ] 7. factory.py     — añadir rama en get_connection() e init_engine()
+[ ] 7. factory.py     — añadir el engine a _ENGINE_PACKAGES y una rama en init_engine()
 [ ] 8. Añadir driver a requirements.txt
-[ ] 9. pytest con DB_ENGINE=<engine> — 293 passed
+[ ] 9. pytest con DB_ENGINE=<engine> — 334 passed (mismo resultado que con SQLite)
 ```
 
 ---
@@ -73,7 +85,7 @@ El objeto devuelto por `get_connection()` debe cumplir el mismo contrato que `SQ
 
 - `conn.execute(sql, params)` → devuelve un cursor con `.fetchone()`, `.fetchall()`
 - `conn.executemany(sql, seq)`
-- `with conn:` → commit en éxito, rollback en excepción
+- `with conn:` → commit en éxito, rollback en excepción y **cierre de la conexión** en ambos casos (o devolverla al pool)
 - Las filas son accesibles por nombre de columna: `row["id"]`
 
 **Problema con psycopg2:** las conexiones de psycopg2 no tienen `.execute()` — solo los cursors lo tienen. Devolver la conexión raw haría que `conn.execute(...)` fallara en runtime. La solución es un wrapper, igual que `SQLiteConnection`.
@@ -168,13 +180,14 @@ def get_connection() -> PostgreSQLConnection:
 
 ## Paso 3 — `adapter.py`
 
-Este módulo aísla los tres puntos de especificidad del driver que de otro modo se filtrarían a los repositorios. Debe ofrecer exactamente las mismas tres funciones que `sqlite/adapter.py`:
+Este módulo aísla los puntos de especificidad del driver que de otro modo se filtrarían a los repositorios. Debe ofrecer las mismas cuatro funciones que `sqlite/adapter.py` (`reset_tables` solo la usan los tests):
 
 | Función | Qué hace | SQLite | PostgreSQL |
 |---------|---------|--------|-----------|
 | `insert_returning_id(conn, sql, params)` | INSERT y devuelve el ID generado | `cursor.lastrowid` | `RETURNING id` |
 | `idempotent_insert(conn, sql, params)` | INSERT que ignora duplicados | `INSERT OR IGNORE INTO` | `INSERT … ON CONFLICT DO NOTHING` |
 | `map_integrity_error(exc_factory)` | Context manager que traduce errores de integridad a excepciones de dominio | `sqlite3.IntegrityError` | `psycopg2.errors.UniqueViolation` |
+| `reset_tables(conn, tables)` | Vacía tablas y reinicia contadores de ID (tests) | `DELETE` + `sqlite_sequence` | `TRUNCATE … RESTART IDENTITY CASCADE` |
 
 ### Ejemplo PostgreSQL
 
@@ -202,6 +215,10 @@ def map_integrity_error(exc_factory: Callable):
         yield
     except psycopg2.errors.UniqueViolation as e:
         raise exc_factory() from e
+
+
+def reset_tables(conn, tables: list[str]) -> None:
+    conn.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
 ```
 
 ---
@@ -306,7 +323,7 @@ from backend.infrastructure.persistence.postgres.adapter import insert_returning
 
 def seed_db() -> None:
     with get_connection() as conn:
-        if conn.execute("SELECT COUNT(*) FROM users").fetchone()["count"] > 0:
+        if conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] > 0:
             return
         u_alice = insert_returning_id(
             conn,
@@ -321,23 +338,20 @@ def seed_db() -> None:
 
 ## Paso 7 — Registrar en `factory.py`
 
-Añadir una rama en las dos funciones del factory. **No modificar las ramas existentes**:
+Dos cambios. **No modificar las entradas existentes**:
+
+1. Registrar el paquete en `_ENGINE_PACKAGES`. Con eso, `get_connection()` y los helpers de dialecto ya despachan al nuevo engine:
 
 ```python
-from backend.config import db_settings
+_ENGINE_PACKAGES = {
+    "sqlite": "backend.infrastructure.persistence.sqlite",
+    "postgres": "backend.infrastructure.persistence.postgres",       # ← añadir
+}
+```
 
+2. Añadir la rama de inicialización en `init_engine()`:
 
-def get_connection():
-    engine = db_settings.engine
-    if engine == "sqlite":
-        from backend.infrastructure.persistence.sqlite.connection import get_connection as _sqlite
-        return _sqlite()
-    if engine == "postgres":                                          # ← añadir
-        from backend.infrastructure.persistence.postgres.connection import get_connection as _pg
-        return _pg()
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
-
-
+```python
 def init_engine() -> None:
     engine = db_settings.engine
     if engine == "sqlite":
@@ -353,7 +367,7 @@ def init_engine() -> None:
             conn.commit()
         seed_db()
         return
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
+    raise _unsupported(engine)
 ```
 
 ---
@@ -374,7 +388,20 @@ DB_ENGINE=postgres DATABASE_URL=postgresql://user:pass@localhost:5432/jkanban_te
     pytest -v
 ```
 
-La suite de tests no debe requerir modificaciones: los fixtures crean la BD en memoria / schema temporal y la destruyen al terminar.
+La suite de tests no requiere modificaciones: `tests/conftest.py` solo crea el fichero temporal cuando `DB_ENGINE=sqlite` y limpia las tablas con `factory.reset_tables()`, que delega en el `adapter.py` del engine. Con otro engine, la BD de pruebas se indica por entorno (`DATABASE_URL` apuntando a una BD **desechable**: los tests la vacían).
+
+### Qué ya está resuelto en el código común
+
+| Diferencia entre engines | Cómo lo absorbe el código actual |
+|--------------------------|----------------------------------|
+| Fechas: SQLite devuelve `str`, PostgreSQL `datetime` (con zona si es `TIMESTAMPTZ`) | `row_dt()` / `to_datetime()` aceptan ambos y normalizan a `datetime` UTC sin zona |
+| Booleanos: SQLite `INTEGER` 0/1, PostgreSQL `BOOLEAN` | Se escribe siempre `bool(...)` (sqlite3 lo guarda como 1/0); las sumas usan `SUM(CASE WHEN completed THEN 1 ELSE 0 END)` |
+| Filas: `sqlite3.Row` admite `row[0]`, `RealDictCursor` no | Todo acceso por nombre: `SELECT COUNT(*) AS n … row["n"]` |
+| SQL fuera de infraestructura | Recuentos y borrados en cascada movidos a `ProjectRepository.count_contents()` / `get_owned_by()` y `UserRepository.delete_with_owned_projects()` |
+
+`tests/test_persistence_portability.py` impide que estas diferencias vuelvan a colarse.
+
+> **Recomendación de esquema:** declarar las fechas como `TIMESTAMP` (sin zona) y guardar UTC, igual que hace hoy `utcnow()`. `TIMESTAMPTZ` también funciona gracias a `to_datetime()`, pero entonces la zona horaria del servidor deja de ser irrelevante.
 
 ---
 

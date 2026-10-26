@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from backend.domain.entities import Group, Priority, Project, Tag, Task, TodoItem, User
+from backend.domain.entities import Group, Priority, Project, ProjectContentCounts, Tag, Task, TodoItem, User
 
 
 class UserRepository(ABC):
@@ -23,6 +23,10 @@ class UserRepository(ABC):
 
     @abstractmethod
     def count_owned_projects(self, user_id: int) -> int: ...
+
+    @abstractmethod
+    def delete_with_owned_projects(self, user_id: int) -> None:
+        """Atomically delete the user and every project they own (with all its data)."""
 
 
 class PriorityRepository(ABC):
@@ -59,7 +63,14 @@ class ProjectRepository(ABC):
     def update(self, project: Project) -> Project: ...
 
     @abstractmethod
-    def delete(self, project_id: int) -> None: ...
+    def delete(self, project_id: int) -> None:
+        """Delete the project; dependent data (groups, tasks, tags…) goes with it."""
+
+    @abstractmethod
+    def get_owned_by(self, owner_id: int) -> list[Project]: ...
+
+    @abstractmethod
+    def count_contents(self, project_id: int) -> ProjectContentCounts: ...
 
     @abstractmethod
     def get_members(self, project_id: int) -> list[User]: ...
