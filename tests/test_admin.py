@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-import backend.infrastructure.database as db_module
+from backend.interfaces.dependencies import get_user_use_cases
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -15,9 +15,7 @@ def login(client, email, password="pass1234"):
 
 
 def make_admin(user_id):
-    with db_module.get_connection() as conn:
-        conn.execute("UPDATE users SET is_admin=1 WHERE id=?", (user_id,))
-        conn.commit()
+    get_user_use_cases().update(user_id, {"is_admin": True})
 
 
 def create_project_with_data(client, headers, name="Proyecto"):
