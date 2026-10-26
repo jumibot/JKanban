@@ -36,10 +36,10 @@ Cada excepción de dominio se mapea a un código HTTP en los routers de la capa 
 | `TodoNotFound` | 404 | Subtarea no existe |
 | `TagNotFound` | 404 | Etiqueta no existe |
 | `TagNameAlreadyExists` | 409 | Nombre de etiqueta duplicado en el mismo proyecto |
-| `TagNotInProject` | 400 | La etiqueta no pertenece al proyecto de la tarea |
+| `TagNotInProject` | 422 | La etiqueta no pertenece al proyecto de la tarea o del grupo |
 | `PriorityNotFound` | 404 | Prioridad no existe |
 | `PriorityNameAlreadyExists` | 409 | Nombre de prioridad duplicado en el mismo proyecto |
-| `PriorityNotInProject` | 400 | La prioridad no pertenece al proyecto |
+| `PriorityNotInProject` | 422 | La prioridad asignada a una tarea es de otro proyecto (las prioridades globales, sin proyecto, se aceptan) |
 
 ---
 
@@ -69,7 +69,7 @@ Cada excepción de dominio se mapea a un código HTTP en los routers de la capa 
 
 - Un grupo no puede eliminarse si contiene tareas (`GroupHasTasks` → 409). Hay que vaciar el grupo primero o eliminar las tareas manualmente.
 - Las tareas heredan el acceso del grupo → proyecto. Un usuario sin acceso al proyecto no puede ver ni operar sus tareas.
-- El orden de grupos y tareas se gestiona con el campo `sort_order` y los endpoints de reorder (`PATCH .../reorder`), que reciben una lista ordenada de IDs.
+- El orden de grupos y tareas se gestiona con el campo `sort_order` y los endpoints de reorder (`PATCH .../reorder`), que reciben una lista ordenada de IDs. Todos deben ser grupos del proyecto (o tareas del grupo) y no repetirse; si no, no se cambia nada (404 / 422).
 
 ---
 

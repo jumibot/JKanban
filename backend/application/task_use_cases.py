@@ -1,6 +1,8 @@
 from datetime import datetime
 from backend.domain.entities import Task
-from backend.domain.exceptions import GroupNotFound, PriorityNotFound, TaskNotFound, UserNotFound
+from backend.domain.exceptions import (
+    GroupNotFound, PriorityNotFound, PriorityNotInProject, TaskNotFound, UserNotFound,
+)
 from backend.domain.repositories import GroupRepository, PriorityRepository, TaskRepository, UserRepository
 
 
@@ -41,12 +43,13 @@ class TaskUseCases:
         actual_end: datetime | None,
         sort_order: int | None = None,
     ) -> Task:
-        if self._groups.get_by_id(group_id) is None:
+        group = self._groups.get_by_id(group_id)
+        if group is None:
             raise GroupNotFound(group_id)
         if user_id is not None and self._users.get_by_id(user_id) is None:
             raise UserNotFound(user_id)
-        if priority_id is not None and self._priorities.get_by_id(priority_id) is None:
-            raise PriorityNotFound(priority_id)
+        if priority_id is not None:
+            self._check_priority(priority_id, group.project_id)
         if sort_order is None:
             sort_order = self._tasks.count_by_group(group_id)
         task = Task(
@@ -61,14 +64,15 @@ class TaskUseCases:
 
     def update(self, task_id: int, updates: dict) -> Task:
         task = self.get_by_id(task_id)
-        if "group_id" in updates and self._groups.get_by_id(updates["group_id"]) is None:
-            raise GroupNotFound(updates["group_id"])
+        group_id = updates["group_id"] if updates.get("group_id") is not None else task.group_id
+        group = self._groups.get_by_id(group_id)
+        if group is None:
+            raise GroupNotFound(group_id)
         if "user_id" in updates and updates["user_id"] is not None:
             if self._users.get_by_id(updates["user_id"]) is None:
                 raise UserNotFound(updates["user_id"])
         if "priority_id" in updates and updates["priority_id"] is not None:
-            if self._priorities.get_by_id(updates["priority_id"]) is None:
-                raise PriorityNotFound(updates["priority_id"])
+            self._check_priority(updates["priority_id"], group.project_id)
         for key, value in updates.items():
             setattr(task, key, value)
         return self._tasks.update(task)
@@ -78,4 +82,17 @@ class TaskUseCases:
         self._tasks.delete(task_id)
 
     def reorder_in_group(self, group_id: int, task_ids: list[int]) -> None:
+        # Solo tareas de este grupo: un id ajeno se trata como inexistente.
+        for task_id in task_ids:
+            task = self._tasks.get_by_id(task_id)
+            if task is None or task.group_id != group_id:
+                raise TaskNotFound(task_id)
         self._tasks.reorder(task_ids)
+
+    def _check_priority(self, priority_id: int, project_id: int | None) -> None:
+        """La prioridad debe existir y ser del proyecto de la tarea (o global, sin proyecto)."""
+        priority = self._priorities.get_by_id(priority_id)
+        if priority is None:
+            raise PriorityNotFound(priority_id)
+        if priority.project_id is not None and priority.project_id != project_id:
+            raise PriorityNotInProject(priority_id, project_id)

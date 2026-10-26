@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from backend.application.task_use_cases import TaskUseCases
 from backend.domain.entities import User
-from backend.domain.exceptions import GroupNotFound, PriorityNotFound, TaskNotFound, UserNotFound
+from backend.domain.exceptions import (
+    GroupNotFound, PriorityNotFound, PriorityNotInProject, TaskNotFound, UserNotFound,
+)
 from backend.interfaces.dependencies import (
     get_current_user, get_group_use_cases, get_task_use_cases,
     get_user_project_ids, require_project_access,
@@ -85,6 +87,8 @@ def create_task(
         raise HTTPException(status_code=404, detail=f"User {exc.user_id} not found")
     except PriorityNotFound as exc:
         raise HTTPException(status_code=404, detail=f"Priority {exc.priority_id} not found")
+    except PriorityNotInProject as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.patch("/{task_id}", response_model=TaskResponse)
@@ -120,6 +124,8 @@ def update_task(
         raise HTTPException(status_code=404, detail=f"User {exc.user_id} not found")
     except PriorityNotFound as exc:
         raise HTTPException(status_code=404, detail=f"Priority {exc.priority_id} not found")
+    except PriorityNotInProject as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.delete("/{task_id}", status_code=204)
