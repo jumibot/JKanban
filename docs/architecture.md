@@ -100,11 +100,11 @@ class ProjectUseCases:
 | Archivo / carpeta | Responsabilidad |
 |-------------------|----------------|
 | `database.py` | Alias público de dos líneas: re-exporta `get_connection` e `init_db` desde el factory. Los imports existentes no necesitan cambiar. |
-| `persistence/factory.py` | Despacha por engine (`DB_ENGINE`): instancia la conexión y orquesta schema + migraciones + seed del engine activo. Añadir un nuevo engine solo requiere extender este archivo. |
+| `persistence/factory.py` | Despacha por engine (`DB_ENGINE`): da la conexión y los helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`) del engine activo, y orquesta schema + migraciones + seed. Único punto de import para el resto del código. Añadir un engine solo requiere extender este archivo (y crear su carpeta). |
 | `persistence/sqlite/` | Implementación SQLite completa: `connection.py` (wrapper con traducción `%s`→`?`), `schema.py` (DDL), `migrations.py` (migraciones ad-hoc no destructivas), `seed.py` (datos demo), `adapter.py` (helpers `insert_returning_id`, etc.). |
 | `persistence/common/` | Utilidades agnósticas de engine: `utcnow()`, `ph(n)` para placeholders portables, helpers de datetime. |
 | `jwt_handler.py` | Codifica y decodifica tokens JWT HS256 con `PyJWT`. Expone `create_access_token(user_id)` y `decode_token(token) → user_id`. |
-| `repositories/` | Una clase por entidad (`SQLiteUserRepository`, `SQLiteProjectRepository`, etc.) que implementa el ABC correspondiente de `domain/repositories.py`. Obtienen la conexión a través del factory, no directamente de sqlite3. |
+| `repositories/` | Una clase por entidad (`SQLiteUserRepository`, `SQLiteProjectRepository`, etc.) que implementa el ABC correspondiente de `domain/repositories.py`. Importan conexión y helpers solo desde el factory; SQL con placeholders `%s`, sin nada específico de SQLite (lo verifica `tests/test_persistence_portability.py`). El prefijo `SQLite` del nombre de clase es histórico. |
 
 **Regla:** esta capa puede importar `domain/` y librerías externas (sqlite3, PyJWT). No importa `application/` ni `interfaces/`.
 
@@ -268,15 +268,11 @@ El wrapper expone la misma superficie `execute`/`executemany` que `SQLiteConnect
 #### 3. Extender `factory.py`
 
 ```python
-def get_connection():
-    engine = db_settings.engine
-    if engine == "sqlite":
-        from backend.infrastructure.persistence.sqlite.connection import get_connection as _sqlite
-        return _sqlite()
-    if engine == "postgres":
-        from backend.infrastructure.persistence.postgres.connection import get_connection as _pg
-        return _pg()
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
+# get_connection() y los helpers de dialecto despachan con este mapa
+_ENGINE_PACKAGES = {
+    "sqlite": "backend.infrastructure.persistence.sqlite",
+    "postgres": "backend.infrastructure.persistence.postgres",   # ← añadir
+}
 
 def init_engine() -> None:
     engine = db_settings.engine
@@ -292,7 +288,7 @@ def init_engine() -> None:
             conn.commit()
         seed_db()
         return
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
+    raise _unsupported(engine)
 ```
 
 #### 4. Activar el engine
@@ -310,6 +306,6 @@ DB_ENGINE=postgres DATABASE_URL=postgresql://user:pass@host:5432/jkanban uvicorn
 | `interfaces/` | **Ninguno** |
 | `infrastructure/repositories/` | **Ninguno** — ya usan el factory |
 | `infrastructure/database.py` | **Ninguno** — es un alias |
-| `infrastructure/persistence/factory.py` | Añadir rama `postgres` en `get_connection` e `init_engine` |
+| `infrastructure/persistence/factory.py` | Añadir `postgres` a `_ENGINE_PACKAGES` y una rama en `init_engine` |
 | `infrastructure/persistence/postgres/` | Crear: `connection.py`, `schema.py`, `migrations.py`, `seed.py`, `adapter.py` |
 | `requirements.txt` | Añadir `psycopg2-binary` |

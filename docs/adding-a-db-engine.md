@@ -32,7 +32,16 @@ database.py  (alias público, 2 líneas)
             └── <nuevo-engine>/       ← lo que hay que crear
 ```
 
-Todos los repositorios obtienen su conexión a través de `factory.get_connection()`. El factory lee la variable de entorno `DB_ENGINE` y devuelve la conexión del adapter correspondiente. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.
+Todos los repositorios importan **solo desde `persistence.factory`**: `get_connection()` y los tres helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`). El factory lee la variable de entorno `DB_ENGINE` y delega en los módulos `connection.py` / `adapter.py` del engine activo. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.
+
+### Reglas para el SQL de repositorios y routers
+
+- Placeholders siempre `%s` (el wrapper SQLite los traduce a `?`). Para `IN (...)` usar `ph(n)` de `persistence/common/utils.py`.
+- Nunca `cursor.lastrowid`, `INSERT OR IGNORE`, `import sqlite3` ni imports desde `persistence.sqlite`: usar los helpers del factory.
+- No escribir un `%` literal en el SQL (p.ej. `LIKE '%texto'`): pasar el patrón como parámetro (`LIKE %s`, `("%texto",)`).
+- Timestamps generados en Python con `utcnow()`, nunca `datetime('now')` / `NOW()` en el SQL.
+
+`tests/test_persistence_portability.py` verifica estas reglas automáticamente en `repositories/` y `interfaces/routers/`.
 
 ---
 
@@ -45,7 +54,7 @@ Todos los repositorios obtienen su conexión a través de `factory.get_connectio
 [ ] 4. schema.py      — create_schema(conn)
 [ ] 5. migrations.py  — migrate(conn)
 [ ] 6. seed.py        — seed_db()
-[ ] 7. factory.py     — añadir rama en get_connection() e init_engine()
+[ ] 7. factory.py     — añadir el engine a _ENGINE_PACKAGES y una rama en init_engine()
 [ ] 8. Añadir driver a requirements.txt
 [ ] 9. pytest con DB_ENGINE=<engine> — 293 passed
 ```
@@ -73,7 +82,7 @@ El objeto devuelto por `get_connection()` debe cumplir el mismo contrato que `SQ
 
 - `conn.execute(sql, params)` → devuelve un cursor con `.fetchone()`, `.fetchall()`
 - `conn.executemany(sql, seq)`
-- `with conn:` → commit en éxito, rollback en excepción
+- `with conn:` → commit en éxito, rollback en excepción y **cierre de la conexión** en ambos casos (o devolverla al pool)
 - Las filas son accesibles por nombre de columna: `row["id"]`
 
 **Problema con psycopg2:** las conexiones de psycopg2 no tienen `.execute()` — solo los cursors lo tienen. Devolver la conexión raw haría que `conn.execute(...)` fallara en runtime. La solución es un wrapper, igual que `SQLiteConnection`.
@@ -321,23 +330,20 @@ def seed_db() -> None:
 
 ## Paso 7 — Registrar en `factory.py`
 
-Añadir una rama en las dos funciones del factory. **No modificar las ramas existentes**:
+Dos cambios. **No modificar las entradas existentes**:
+
+1. Registrar el paquete en `_ENGINE_PACKAGES`. Con eso, `get_connection()` y los tres helpers de dialecto ya despachan al nuevo engine:
 
 ```python
-from backend.config import db_settings
+_ENGINE_PACKAGES = {
+    "sqlite": "backend.infrastructure.persistence.sqlite",
+    "postgres": "backend.infrastructure.persistence.postgres",       # ← añadir
+}
+```
 
+2. Añadir la rama de inicialización en `init_engine()`:
 
-def get_connection():
-    engine = db_settings.engine
-    if engine == "sqlite":
-        from backend.infrastructure.persistence.sqlite.connection import get_connection as _sqlite
-        return _sqlite()
-    if engine == "postgres":                                          # ← añadir
-        from backend.infrastructure.persistence.postgres.connection import get_connection as _pg
-        return _pg()
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
-
-
+```python
 def init_engine() -> None:
     engine = db_settings.engine
     if engine == "sqlite":
@@ -353,7 +359,7 @@ def init_engine() -> None:
             conn.commit()
         seed_db()
         return
-    raise ValueError(f"Unsupported DB engine: {engine!r}")
+    raise _unsupported(engine)
 ```
 
 ---
@@ -374,7 +380,17 @@ DB_ENGINE=postgres DATABASE_URL=postgresql://user:pass@localhost:5432/jkanban_te
     pytest -v
 ```
 
-La suite de tests no debe requerir modificaciones: los fixtures crean la BD en memoria / schema temporal y la destruyen al terminar.
+La suite de tests no debe requerir modificaciones en los tests de API, pero **`tests/conftest.py` sí está atado hoy a SQLite** (fija `SQLITE_PATH` a un fichero temporal y trunca tablas con SQL directo). Habrá que darle una rama para el nuevo engine que apunte a una BD de pruebas.
+
+### Pendientes conocidos antes de que PostgreSQL funcione
+
+Los repositorios ya no contienen SQL específico de SQLite, pero aún asumen algunos tipos de dato de SQLite:
+
+| Punto | Por qué falla en PostgreSQL | Opciones |
+|-------|-----------------------------|----------|
+| Fechas | Los `_to_entity()` hacen `datetime.fromisoformat(row[...])`: esperan `str`. Una columna `TIMESTAMPTZ` devuelve ya un `datetime`. | Guardar fechas como `TEXT` también en PostgreSQL, o hacer que `row_dt()` acepte ambos tipos. |
+| Booleanos | `SUM(completed)` en `task_repository._load_todo_counts` no funciona sobre `BOOLEAN`. | Usar `SUM(CASE WHEN completed THEN 1 ELSE 0 END)` o `COUNT(*) FILTER (WHERE completed)`. |
+| SQL en routers | `routers/admin.py` y `routers/projects.py` ejecutan SQL directamente (recuentos y borrados en cascada). Es portable, pero viola la arquitectura. | Moverlo a repositorios / casos de uso. |
 
 ---
 
