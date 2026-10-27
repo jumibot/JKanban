@@ -114,9 +114,12 @@ Requiere JKanban instalado y **arrancado** ([installation.md](installation.md)).
    ```
 
 2. **Usuario de JKanban para el MCP.** Se recomienda uno dedicado (p. ej.
-   `sf-bot@…`). Créalo desde la web o con `POST /users/`. Solo ve los proyectos
-   que posee o de los que es miembro: los que crea por `ensure_project` son suyos.
-   Para que una persona los vea en el tablero, añádela como miembro.
+   `sf-bot@…`). Para la SF es **el administrador** de su JKanban, creado en la
+   instalación con `python -m backend.create_admin` (JKanban arranca vacío y la SF
+   lo configura todo). Para otros usos basta un usuario normal (desde la web o
+   `POST /users/`). Solo ve los proyectos que posee o de los que es miembro: los
+   que crea por `ensure_project` son suyos. Para que una persona los vea en el
+   tablero, añádela como miembro.
 
 3. **Registrar el MCP en el proyecto SF.** Desde la carpeta del proyecto SF:
 

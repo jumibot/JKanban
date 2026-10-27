@@ -42,7 +42,8 @@ Estructura de la rama `develop` (en `main` / `release/*` el backend está en `ap
 JKanban/
 ├── backend/                    # Backend
 │   ├── main.py                 # App FastAPI: registra routers y sirve frontend/
-│   ├── config.py               # Settings por variables de entorno (DB_ENGINE, SQLITE_PATH)
+│   ├── config.py               # Settings por variables de entorno (DB_ENGINE, SQLITE_PATH, JKANBAN_DEMO_DATA)
+│   ├── create_admin.py         # Comando: crear o promover un administrador
 │   ├── domain/                 # Entidades, ABCs repositorios, excepciones
 │   ├── application/            # Casos de uso (lógica de negocio)
 │   ├── infrastructure/
@@ -84,6 +85,11 @@ python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 | `JWT_SECRET` | `dev-secret-key-change-in-production-32b` | Cadena aleatoria ≥32 chars |
 | `DB_ENGINE` | `sqlite` | `sqlite` (PostgreSQL: pendiente de adapter) |
 | `SQLITE_PATH` | `<repo>/tasks.db` | Ruta absoluta al archivo SQLite |
+| `JKANBAN_DEMO_DATA` | `1` (carga datos demo en una BD sin usuarios) | `0`: arranca vacío |
+| `JKANBAN_ADMIN_PASSWORD` | — | Contraseña para `python -m backend.create_admin` |
+
+El primer administrador se crea con `python -m backend.create_admin` (ver
+[Instalación](installation.md#4-base-de-datos-y-administrador)).
 
 ---
 
