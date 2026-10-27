@@ -1,7 +1,8 @@
 """Operaciones del proyecto SF traducidas a la API de JKanban.
 
 Proyecto -> Project, Plan -> Group, Actividad -> Task, Paso -> TodoItem.
-Etiquetas y prioridades son las del proyecto en JKanban.
+Prioridades: las del proyecto. Etiquetas y flujos: globales o del proyecto. Una
+etiqueta con flujo tiene un estado en cada plan o actividad que la lleva.
 Todas las funciones devuelven diccionarios JSON-serializables en vocabulario SF.
 Las fechas se aceptan y devuelven como texto ISO 8601.
 """
@@ -43,6 +44,18 @@ def _is_overdue(activity: dict, now: datetime) -> bool:
     return not activity["done"] and end is not None and end < now
 
 
+def _count_states(plans: list[dict], activities: list[dict]) -> dict:
+    """{etiqueta: {estado: {"plans": n, "activities": m}}} de un proyecto."""
+    out: dict = {}
+    for kind, items in (("plans", [_states(g.get("tags")) for g in plans]),
+                        ("activities", [a["states"] for a in activities])):
+        for states in items:
+            for tag, state in states.items():
+                cell = out.setdefault(tag, {}).setdefault(state, {"plans": 0, "activities": 0})
+                cell[kind] += 1
+    return out
+
+
 def _public(a: dict) -> dict:
     return {k: v for k, v in a.items() if not k.startswith("_")}
 
@@ -72,8 +85,73 @@ def _project(p: dict) -> dict:
     }
 
 
+def _key(name: str) -> str:
+    return name.strip().casefold()
+
+
 def _tag(t: dict) -> dict:
-    return {"id": t["id"], "name": t["name"], "color": t["color"]}
+    return {
+        "id": t["id"],
+        "name": t["name"],
+        "color": t["color"],
+        "scope": "global" if t.get("project_id") is None else "project",
+        "project_id": t.get("project_id"),
+        "flow": (t.get("flow") or {}).get("name"),
+    }
+
+
+def _states(tags: list[dict] | None) -> dict:
+    """{etiqueta: estado} de las etiquetas con flujo de un plan o actividad."""
+    return {t["name"]: t["state"]["name"] for t in tags or [] if t.get("state")}
+
+
+def _flow(f: dict) -> dict:
+    """Flujo con estados y transiciones por nombre."""
+    names = {s["id"]: s["name"] for s in f["states"]}
+    return {
+        "id": f["id"],
+        "name": f["name"],
+        "scope": "global" if f.get("project_id") is None else "project",
+        "project_id": f.get("project_id"),
+        "initial": names.get(f.get("initial_state_id")),
+        "states": [{"id": s["id"], "name": s["name"], "color": s["color"],
+                    "initial": s["is_initial"]} for s in f["states"]],
+        "transitions": [{"from": names[t["from_state_id"]], "to": names[t["to_state_id"]]}
+                        for t in f["transitions"]],
+    }
+
+
+def _flow_definition(states: list, initial: str, transitions: list[dict]):
+    """Valida y normaliza una definición de flujo (estados por nombre o {name, color}).
+
+    Devuelve ([(nombre, color|None)], [(from, to)]). Mismas reglas que la API, para
+    que ensure_flow no deje un flujo a medias por una definición mal hecha.
+    """
+    norm = []
+    for st in states or []:
+        name, color = (st, None) if isinstance(st, str) else (st.get("name"), st.get("color"))
+        if not name or not str(name).strip():
+            raise JKanbanError(422, "cada estado necesita un nombre")
+        norm.append((str(name).strip(), color))
+    if not norm:
+        raise JKanbanError(422, "un flujo necesita al menos un estado")
+    keys = [_key(n) for n, _ in norm]
+    if len(set(keys)) != len(keys):
+        raise JKanbanError(422, "hay estados repetidos")
+    if _key(initial) not in keys:
+        raise JKanbanError(422, f"el estado inicial '{initial}' no es uno de los estados")
+    pairs = []
+    for t in transitions or []:
+        a, b = t.get("from"), t.get("to")
+        for end in (a, b):
+            if not end or _key(end) not in keys:
+                raise JKanbanError(422, f"la transición {t} usa un estado que no existe")
+        if _key(a) == _key(b):
+            raise JKanbanError(422, f"transición de '{a}' a sí mismo")
+        if (_key(a), _key(b)) in [(_key(x), _key(y)) for x, y in pairs]:
+            raise JKanbanError(422, f"transición '{a}' → '{b}' repetida")
+        pairs.append((a.strip(), b.strip()))
+    return norm, pairs
 
 
 def _priority(p: dict) -> dict:
@@ -88,6 +166,7 @@ def _plan(g: dict) -> dict:
         "description": g.get("description"),
         "order": g.get("sort_order", 0),
         "tags": [t["name"] for t in g.get("tags") or []],
+        "states": _states(g.get("tags")),
     }
 
 
@@ -105,6 +184,7 @@ def _activity(t: dict, steps: list[dict] | None = None) -> dict:
         "order": t.get("sort_order", 0),
         "priority": (t.get("priority") or {}).get("name"),
         "tags": [tag["name"] for tag in t.get("tags") or []],
+        "states": _states(t.get("tags")),
         "assignee": (t.get("user") or {}).get("email"),
         "estimated_duration": t.get("estimated_duration"),
         "estimated_start": t.get("estimated_start"),
@@ -306,21 +386,178 @@ class SFService:
 
     # ── Etiquetas ─────────────────────────────────────────────────────────
 
-    def list_tags(self, project_id: int) -> list[dict]:
-        return [_tag(t) for t in self._c.get(f"/projects/{project_id}/tags/")]
+    def list_tags(self, project_id: int | None = None) -> list[dict]:
+        """Sin proyecto: las globales. Con proyecto: las globales y las del proyecto."""
+        return [_tag(t) for t in self._c.get(self._tags_path(project_id))]
 
-    def create_tag(self, project_id: int, name: str, color: str | None = None) -> dict:
-        return _tag(self._c.post(f"/projects/{project_id}/tags/",
-                                 _drop_none({"name": name, "color": color})))
+    def create_tag(self, name: str, project_id: int | None = None, color: str | None = None,
+                   flow: str | None = None) -> dict:
+        """Sin proyecto, etiqueta global (solo administrador). `flow`: nombre del flujo."""
+        body = _drop_none({"name": name, "color": color})
+        if flow is not None:
+            body["flow_id"] = self._flow_by_name(flow, project_id)["id"]
+        return _tag(self._c.post(self._tags_path(project_id), body))
 
-    def update_tag(self, project_id: int, tag_id: int, name: str | None = None,
-                   color: str | None = None) -> dict:
-        return _tag(self._c.patch(f"/projects/{project_id}/tags/{tag_id}",
-                                  _drop_none({"name": name, "color": color})))
+    def update_tag(self, tag_id: int, project_id: int | None = None, name: str | None = None,
+                   color: str | None = None, flow: str | None = None,
+                   remove_flow: bool = False) -> dict:
+        """`project_id` solo si la etiqueta es de un proyecto. Cambiar o quitar el flujo
+        falla (409) si la etiqueta está asignada a algún plan o actividad."""
+        body = _drop_none({"name": name, "color": color})
+        if flow is not None and remove_flow:
+            raise JKanbanError(422, "indica flow o remove_flow, no los dos")
+        if flow is not None:
+            body["flow_id"] = self._flow_by_name(flow, project_id)["id"]
+        if remove_flow:
+            body["flow_id"] = None
+        return _tag(self._c.patch(f"{self._tags_path(project_id)}{tag_id}", body))
 
-    def delete_tag(self, project_id: int, tag_id: int) -> dict:
-        self._c.delete(f"/projects/{project_id}/tags/{tag_id}")
+    def delete_tag(self, tag_id: int, project_id: int | None = None) -> dict:
+        self._c.delete(f"{self._tags_path(project_id)}{tag_id}")
         return {"deleted_tag": tag_id}
+
+    # ── Flujos ────────────────────────────────────────────────────────────
+
+    def list_flows(self, project_id: int | None = None) -> list[dict]:
+        """Sin proyecto: los globales. Con proyecto: los globales y los del proyecto."""
+        return [_flow(f) for f in self._c.get(self._flows_path(project_id))]
+
+    def create_flow(self, name: str, states: list, initial: str,
+                    transitions: list[dict] | None = None,
+                    project_id: int | None = None) -> dict:
+        norm, pairs = _flow_definition(states, initial, transitions or [])
+        body = {
+            "name": name,
+            "states": [_drop_none({"name": n, "color": c}) for n, c in norm],
+            "initial": initial,
+            "transitions": [{"from": a, "to": b} for a, b in pairs],
+        }
+        return _flow(self._c.post(self._flows_path(project_id), body))
+
+    def ensure_flow(self, name: str, states: list, initial: str,
+                    transitions: list[dict] | None = None,
+                    project_id: int | None = None) -> dict:
+        """Crea el flujo o le añade los estados y transiciones que falten. Nunca borra
+        ni cambia lo existente (ni el inicial ni los colores): lo indica."""
+        norm, pairs = _flow_definition(states, initial, transitions or [])
+        current = next((f for f in self._c.get(self._flows_path(project_id))
+                        if f.get("project_id") == project_id and _key(f["name"]) == _key(name)), None)
+        result = {"created": False, "added_states": [], "added_transitions": [],
+                  "extra_states": [], "extra_transitions": [], "initial_differs": False}
+        if current is None:
+            result["flow"] = self.create_flow(name, states, initial, transitions, project_id)
+            result["created"] = True
+            return result
+
+        fid = current["id"]
+        have = {_key(st["name"]) for st in current["states"]}
+        for n, c in norm:
+            if _key(n) not in have:
+                current = self._c.post(f"/flows/{fid}/states", _drop_none({"name": n, "color": c}))
+                result["added_states"].append(n)
+        ids = {_key(st["name"]): st["id"] for st in current["states"]}
+        names = {st["id"]: st["name"] for st in current["states"]}
+        have_pairs = {(t["from_state_id"], t["to_state_id"]) for t in current["transitions"]}
+        wanted_pairs = set()
+        for a, b in pairs:
+            pair = (ids[_key(a)], ids[_key(b)])
+            wanted_pairs.add(pair)
+            if pair not in have_pairs:
+                current = self._c.post(f"/flows/{fid}/transitions",
+                                       {"from_state_id": pair[0], "to_state_id": pair[1]})
+                result["added_transitions"].append({"from": names[pair[0]], "to": names[pair[1]]})
+        wanted = {_key(n) for n, _ in norm}
+        result["extra_states"] = [st["name"] for st in current["states"] if _key(st["name"]) not in wanted]
+        result["extra_transitions"] = [
+            {"from": names[t["from_state_id"]], "to": names[t["to_state_id"]]}
+            for t in current["transitions"]
+            if (t["from_state_id"], t["to_state_id"]) not in wanted_pairs
+        ]
+        result["initial_differs"] = current["initial_state_id"] != ids[_key(initial)]
+        result["flow"] = _flow(current)
+        return result
+
+    def update_flow(self, flow_id: int, name: str) -> dict:
+        return _flow(self._c.patch(f"/flows/{flow_id}", {"name": name}))
+
+    def delete_flow(self, flow_id: int) -> dict:
+        """Falla (409) si alguna etiqueta usa el flujo."""
+        self._c.delete(f"/flows/{flow_id}")
+        return {"deleted_flow": flow_id}
+
+    def add_flow_state(self, flow_id: int, name: str, color: str | None = None,
+                       initial: bool = False) -> dict:
+        body = _drop_none({"name": name, "color": color})
+        if initial:
+            body["is_initial"] = True
+        return _flow(self._c.post(f"/flows/{flow_id}/states", body))
+
+    def update_flow_state(self, flow_id: int, state: int | str, name: str | None = None,
+                          color: str | None = None, initial: bool | None = None,
+                          order: int | None = None) -> dict:
+        """`initial=true` lo convierte en el estado inicial (solo afecta a asignaciones futuras)."""
+        sid = self._state_id(self._c.get(f"/flows/{flow_id}"), state)
+        body = _drop_none({"name": name, "color": color, "is_initial": initial, "sort_order": order})
+        if not body:
+            return _flow(self._c.get(f"/flows/{flow_id}"))
+        return _flow(self._c.patch(f"/flows/{flow_id}/states/{sid}", body))
+
+    def delete_flow_state(self, flow_id: int, state: int | str) -> dict:
+        """Falla si algún plan o actividad está en ese estado (409) o si es el inicial (422)."""
+        sid = self._state_id(self._c.get(f"/flows/{flow_id}"), state)
+        self._c.delete(f"/flows/{flow_id}/states/{sid}")
+        return _flow(self._c.get(f"/flows/{flow_id}"))
+
+    def add_flow_transition(self, flow_id: int, from_state: int | str, to_state: int | str) -> dict:
+        f = self._c.get(f"/flows/{flow_id}")
+        body = {"from_state_id": self._state_id(f, from_state), "to_state_id": self._state_id(f, to_state)}
+        return _flow(self._c.post(f"/flows/{flow_id}/transitions", body))
+
+    def remove_flow_transition(self, flow_id: int, from_state: int | str,
+                               to_state: int | str) -> dict:
+        f = self._c.get(f"/flows/{flow_id}")
+        a, b = self._state_id(f, from_state), self._state_id(f, to_state)
+        self._c.delete(f"/flows/{flow_id}/transitions/{a}/{b}")
+        return _flow(self._c.get(f"/flows/{flow_id}"))
+
+    # ── Estado de un plan o actividad ─────────────────────────────────────
+
+    def set_flow_state(self, tag: str, to: str, plan_id: int | None = None,
+                       activity_id: int | None = None, note: str | None = None) -> dict:
+        """Pasa la etiqueta `tag` del plan o actividad al estado `to`, si el flujo
+        tiene esa transición. Devuelve el estado nuevo y los siguientes posibles."""
+        path, item = self._item(plan_id, activity_id)
+        assigned = next((t for t in item.get("tags") or [] if _key(t["name"]) == _key(tag)), None)
+        if assigned is None:
+            raise JKanbanError(404, f"no tiene la etiqueta '{tag}'")
+        if assigned.get("flow") is None:
+            raise JKanbanError(422, f"la etiqueta '{assigned['name']}' no tiene flujo")
+        flow = self._c.get(f"/flows/{assigned['flow']['id']}")
+        target = self._state_id(flow, to)
+        self._c.patch(f"{path}/tags/{assigned['id']}/state", _drop_none({"state_id": target, "note": note}))
+        names = {st["id"]: st["name"] for st in flow["states"]}
+        out = {"tag": assigned["name"], "flow": flow["name"], "state": names[target],
+               "next": [names[t["to_state_id"]] for t in flow["transitions"]
+                        if t["from_state_id"] == target]}
+        if activity_id is not None:
+            out["activity"] = self.get_activity(activity_id)
+        else:
+            out["plan"] = _plan(self._c.get(f"/groups/{plan_id}"))
+        return out
+
+    def get_flow_history(self, tag: str, plan_id: int | None = None,
+                         activity_id: int | None = None) -> list[dict]:
+        """Cambios de estado de la etiqueta en el plan o actividad (se conservan al quitarla)."""
+        path, item = self._item(plan_id, activity_id)
+        project_id = self._item_project(plan_id, item)
+        found = next((t for t in self._c.get(f"/projects/{project_id}/tags/")
+                      if _key(t["name"]) == _key(tag)), None)
+        if found is None:
+            raise JKanbanError(404, f"la etiqueta '{tag}' no existe")
+        emails = {u["id"]: u["email"] for u in self._c.get("/users/")}
+        return [{"from": e["from_state"], "to": e["to_state"], "note": e["note"],
+                 "by": emails.get(e["changed_by"], e["changed_by"]), "at": e["changed_at"]}
+                for e in self._c.get(f"{path}/tags/{found['id']}/history")]
 
     # ── Prioridades ───────────────────────────────────────────────────────
 
@@ -368,6 +605,7 @@ class SFService:
                 "last_activity_at": max(stamps) if stamps else p.get("modified_at") or p.get("created_at"),
                 "next": [{"id": a["id"], "title": a["title"], "plan": a["plan"]}
                          for a in pending[:next_count]],
+                "flow_states": _count_states(p_plans, acts),
             })
         totals = {k: sum(r[k] for r in rows) for k in
                   ("plans", "activities_total", "activities_done", "steps_total", "steps_done",
@@ -379,13 +617,16 @@ class SFService:
                         done: bool | None = None, tags: list[str] | None = None,
                         priority: str | None = None, text: str | None = None,
                         overdue: bool | None = None, in_progress: bool | None = None,
-                        modified_since: str | None = None, limit: int = 50) -> dict:
-        """Actividades de todos los proyectos que cumplen todos los filtros dados."""
+                        modified_since: str | None = None, limit: int = 50,
+                        states: dict[str, str] | None = None) -> dict:
+        """Actividades de todos los proyectos que cumplen todos los filtros dados.
+        `states`: {etiqueta: estado}; deben cumplirse todos."""
         _, _, activities = self._snapshot()
         now = self._now()
         wanted_tags = {t.strip().casefold() for t in tags or []}
         since = _parse_dt(modified_since) if modified_since else None
         needle = text.casefold() if text else None
+        wanted_states = {_key(k): _key(v) for k, v in (states or {}).items()}
 
         def keep(a: dict) -> bool:
             if project_id is not None and a["_project"]["id"] != project_id:
@@ -396,6 +637,10 @@ class SFService:
                 return False
             if wanted_tags and not wanted_tags <= {t.casefold() for t in a["tags"]}:
                 return False
+            if wanted_states:
+                have = {_key(k): _key(v) for k, v in a["states"].items()}
+                if any(have.get(k) != v for k, v in wanted_states.items()):
+                    return False
             if priority is not None and (a["priority"] or "").casefold() != priority.casefold():
                 return False
             if needle and needle not in f"{a['title']}\n{a['description'] or ''}".casefold():
@@ -456,9 +701,54 @@ class SFService:
                 return u["id"]
         raise JKanbanError(404, f"no hay ningún usuario con email {email}")
 
+    @staticmethod
+    def _tags_path(project_id: int | None) -> str:
+        return "/tags/" if project_id is None else f"/projects/{project_id}/tags/"
+
+    @staticmethod
+    def _flows_path(project_id: int | None) -> str:
+        return "/flows/" if project_id is None else f"/projects/{project_id}/flows/"
+
+    def _flow_by_name(self, name: str, project_id: int | None) -> dict:
+        """Flujo por nombre entre los que puede usar una etiqueta de ese ámbito."""
+        for f in self._c.get(self._flows_path(project_id)):
+            if _key(f["name"]) == _key(name):
+                return f
+        raise JKanbanError(404, f"no hay ningún flujo '{name}' disponible aquí")
+
+    @staticmethod
+    def _state_id(flow: dict, ref: int | str) -> int:
+        """Estado del flujo por id o por nombre (sin distinguir mayúsculas). Un texto
+        numérico que no es el nombre de ningún estado se toma como id."""
+        if isinstance(ref, str):
+            for st in flow["states"]:
+                if _key(st["name"]) == _key(ref):
+                    return st["id"]
+            if ref.strip().isdigit():
+                ref = int(ref)
+        for st in flow["states"]:
+            if isinstance(ref, int) and st["id"] == ref:
+                return st["id"]
+        options = ", ".join(st["name"] for st in flow["states"])
+        raise JKanbanError(404, f"el flujo '{flow['name']}' no tiene el estado {ref!r} (tiene: {options})")
+
+    def _item(self, plan_id: int | None, activity_id: int | None) -> tuple[str, dict]:
+        """(ruta base, datos) del plan o la actividad: exactamente uno de los dos."""
+        if (plan_id is None) == (activity_id is None):
+            raise JKanbanError(422, "indica plan_id o activity_id (uno de los dos)")
+        if activity_id is not None:
+            return f"/tasks/{activity_id}", self._c.get(f"/tasks/{activity_id}")
+        return f"/groups/{plan_id}", self._c.get(f"/groups/{plan_id}")
+
+    def _item_project(self, plan_id: int | None, item: dict) -> int:
+        if plan_id is not None:
+            return item["project_id"]
+        return self._c.get(f"/groups/{item['group_id']}")["project_id"]
+
     def _retag(self, base: str, project_id: int, add: list[str] | None,
                remove: list[str] | None) -> None:
-        """Añade y quita etiquetas por nombre. Las que se añaden y no existen se crean."""
+        """Añade y quita etiquetas por nombre, entre las del proyecto y las globales.
+        Las que se añaden y no existen se crean en el proyecto, sin flujo."""
         by_name = {t["name"].casefold(): t for t in self._c.get(f"/projects/{project_id}/tags/")}
         for name in add or []:
             tag = by_name.get(name.strip().casefold())
@@ -469,5 +759,5 @@ class SFService:
         for name in remove or []:
             tag = by_name.get(name.strip().casefold())
             if tag is None:
-                raise JKanbanError(404, f"la etiqueta '{name}' no existe en el proyecto")
+                raise JKanbanError(404, f"la etiqueta '{name}' no existe en el proyecto ni es global")
             self._c.delete(f"{base}/{tag['id']}")

@@ -26,7 +26,8 @@ CALLS = {
     "overview": {"next_count": 5},
     "find_activities": {"project_id": 1, "plan_id": 2, "done": False, "tags": ["x"],
                         "priority": "Alta", "text": "api", "overdue": True,
-                        "in_progress": False, "modified_since": "2026-10-01", "limit": 10},
+                        "in_progress": False, "modified_since": "2026-10-01", "limit": 10,
+                        "states": {"Devslice": "En desarrollo"}},
     "list_members": {"project_id": 1},
     "add_member": {"project_id": 1, "email": "a@b.c"},
     "remove_member": {"project_id": 1, "email": "a@b.c"},
@@ -52,9 +53,26 @@ CALLS = {
     "reorder_steps": {"activity_id": 4, "step_ids": [8, 7]},
     "delete_step": {"activity_id": 4, "step_id": 7},
     "list_tags": {"project_id": 1},
-    "create_tag": {"project_id": 1, "name": "x", "color": "#112233"},
-    "update_tag": {"project_id": 1, "tag_id": 9, "name": "y", "color": "#112233"},
-    "delete_tag": {"project_id": 1, "tag_id": 9},
+    "create_tag": {"name": "x", "project_id": 1, "color": "#112233", "flow": "Devslice"},
+    "update_tag": {"tag_id": 9, "project_id": 1, "name": "y", "color": "#112233",
+                   "flow": "Devslice", "remove_flow": False},
+    "delete_tag": {"tag_id": 9, "project_id": 1},
+    "list_flows": {"project_id": 1},
+    "create_flow": {"name": "F", "states": ["A", {"name": "B", "color": "#112233"}],
+                    "initial": "A", "transitions": [{"from": "A", "to": "B"}], "project_id": 1},
+    "ensure_flow": {"name": "F", "states": ["A", "B"], "initial": "A",
+                    "transitions": [{"from": "A", "to": "B"}], "project_id": None},
+    "update_flow": {"flow_id": 3, "name": "G"},
+    "delete_flow": {"flow_id": 3},
+    "add_flow_state": {"flow_id": 3, "name": "C", "color": "#112233", "initial": True},
+    "update_flow_state": {"flow_id": 3, "state": "C", "name": "D", "color": "#112233",
+                          "initial": True, "order": 2},
+    "delete_flow_state": {"flow_id": 3, "state": 12},
+    "add_flow_transition": {"flow_id": 3, "from_state": "A", "to_state": 12},
+    "remove_flow_transition": {"flow_id": 3, "from_state": 11, "to_state": "B"},
+    "set_flow_state": {"tag": "Devslice", "to": "En desarrollo", "plan_id": None,
+                       "activity_id": 4, "note": "n"},
+    "get_flow_history": {"tag": "Devslice", "plan_id": 2, "activity_id": None},
     "list_priorities": {"project_id": 1},
     "create_priority": {"project_id": 1, "name": "Alta", "icon": "bolt", "color": "#112233"},
     "update_priority": {"project_id": 1, "priority_id": 5, "name": "A", "icon": "flag",
@@ -127,6 +145,9 @@ def test_api_error_reaches_the_model_with_its_reason():
     ("update_activity", {"activity_id": 4, "clear": ["title"]}),
     ("create_activity", {"plan_id": 2, "title": "T", "estimated_duration": -1}),
     ("reorder_plans", {"project_id": 1}),
+    ("create_flow", {"name": "F", "states": [], "initial": "A"}),
+    ("ensure_flow", {"name": "F", "states": ["A"], "initial": "A", "transitions": [{"from": "A"}]}),
+    ("add_flow_state", {"flow_id": 3, "name": "C", "color": "rojo"}),
 ])
 def test_invalid_arguments_are_rejected_before_the_service(tool, args):
     service = RecordingService()
@@ -139,3 +160,11 @@ def test_invalid_arguments_are_rejected_before_the_service(tool, args):
 def test_server_publishes_instructions():
     server = build_server(RecordingService())
     assert "ensure_project" in server.instructions
+    assert "set_flow_state" in server.instructions
+
+
+def test_state_reference_keeps_ids_as_ints():
+    service = RecordingService()
+    run(build_server(service).call_tool("delete_flow_state", {"flow_id": 3, "state": 12}))
+    run(build_server(service).call_tool("delete_flow_state", {"flow_id": 3, "state": "12"}))
+    assert [args["state"] for _, args in service.calls] == [12, "12"]
