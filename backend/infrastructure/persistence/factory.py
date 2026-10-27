@@ -1,0 +1,91 @@
+"""Engine dispatch: the only module that knows which DB engine is active.
+
+Repositories (and any other code outside persistence/) must import
+connections and dialect helpers from here, never from an engine package
+such as persistence/sqlite/. That keeps them engine-agnostic: adding a new
+engine only means adding it to _ENGINE_PACKAGES and to init_engine().
+"""
+import importlib
+from types import ModuleType
+from typing import Callable
+
+from backend.config import db_settings
+
+# Each engine package must provide connection.py (get_connection) and
+# adapter.py (insert_returning_id, idempotent_insert, map_integrity_error,
+# reset_tables).
+_ENGINE_PACKAGES = {
+    "sqlite": "backend.infrastructure.persistence.sqlite",
+}
+
+
+def _unsupported(engine: str) -> ValueError:
+    return ValueError(f"Unsupported DB engine: {engine!r}")
+
+
+def _engine_module(name: str) -> ModuleType:
+    """Return the `name` module (connection, adapter…) of the active engine."""
+    engine = db_settings.engine
+    package = _ENGINE_PACKAGES.get(engine)
+    if package is None:
+        raise _unsupported(engine)
+    return importlib.import_module(f"{package}.{name}")
+
+
+# ── Connection ────────────────────────────────────────────────────────────────
+
+def get_connection():
+    """Return an open connection for the configured DB engine.
+
+    Always use it as a context manager: on exit the transaction is committed
+    (or rolled back on error) and the connection is closed.
+    """
+    return _engine_module("connection").get_connection()
+
+
+# ── Dialect helpers (delegated to the active engine's adapter) ────────────────
+
+def insert_returning_id(conn, sql: str, params) -> int:
+    """Execute an INSERT (with %s placeholders) and return the new row ID."""
+    return _engine_module("adapter").insert_returning_id(conn, sql, params)
+
+
+def idempotent_insert(conn, sql: str, params) -> None:
+    """Plain INSERT INTO … that silently ignores duplicate-key violations."""
+    _engine_module("adapter").idempotent_insert(conn, sql, params)
+
+
+def map_integrity_error(exc_factory: Callable):
+    """Context manager: translate the engine's integrity error into exc_factory()."""
+    return _engine_module("adapter").map_integrity_error(exc_factory)
+
+
+def reset_tables(tables: list[str]) -> None:
+    """Empty the given tables (children first) and restart their ID counters.
+
+    For tests and maintenance only — never call it from application code.
+    """
+    with get_connection() as conn:
+        _engine_module("adapter").reset_tables(conn, tables)
+        conn.commit()
+
+
+# ── Initialisation ────────────────────────────────────────────────────────────
+
+def init_engine() -> None:
+    """Create schema, run migrations and, unless JKANBAN_DEMO_DATA is off,
+    seed demo data into an empty database."""
+    engine = db_settings.engine
+    if engine == "sqlite":
+        from backend.infrastructure.persistence.sqlite.migrations import migrate
+        from backend.infrastructure.persistence.sqlite.schema import create_schema
+        from backend.infrastructure.persistence.sqlite.seed import seed_db
+
+        with get_connection() as conn:
+            create_schema(conn)
+            migrate(conn)
+            conn.commit()
+        if db_settings.demo_data:
+            seed_db()
+        return
+    raise _unsupported(engine)

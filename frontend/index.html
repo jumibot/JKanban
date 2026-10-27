@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JKanban</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: {
+        colors: {
+          primary: '#F97316', 'primary-dark': '#EA580C',
+          surface: '#080f1e', 's1': '#0d1829', 's2': '#111f35', 's3': '#1a2d4a',
+          'on-s': '#f1f5f9', 'on-sm': '#94a3b8', 'on-sd': '#475569',
+        },
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+      }}
+    }
+  </script>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:'Inter',sans-serif;background:#080f1e;color:#f1f5f9;margin:0}
+    .ms{font-family:'Material Symbols Outlined';font-weight:300;font-style:normal;font-size:20px;line-height:1;user-select:none;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased}
+    .ms-lg{font-size:28px}.ms-sm{font-size:16px}.ms-xs{font-size:13px}
+
+    /* Glass */
+    .glass{background:rgba(13,24,41,.88);backdrop-filter:blur(20px);border:1px solid rgba(249,115,22,.12)}
+    .glass-card{background:rgba(17,31,53,.7);backdrop-filter:blur(12px);border:1px solid rgba(249,115,22,.09)}
+    .glass-modal{background:rgba(6,12,24,.97);backdrop-filter:blur(28px);border:1px solid rgba(249,115,22,.18)}
+
+    /* Buttons */
+    .btn{border-radius:.75rem;padding:.5rem 1.125rem;font-size:.875rem;font-weight:600;cursor:pointer;border:none;transition:all .18s;display:inline-flex;align-items:center;gap:.375rem}
+    .btn-primary{background:linear-gradient(135deg,#F97316,#EA580C);color:#fff}
+    .btn-primary:hover{background:linear-gradient(135deg,#FB923C,#F97316);transform:translateY(-1px);box-shadow:0 4px 18px rgba(249,115,22,.35)}
+    .btn-ghost{background:transparent;color:#94a3b8;border:1px solid rgba(100,116,139,.28)}
+    .btn-ghost:hover{color:#f1f5f9;border-color:rgba(249,115,22,.4);background:rgba(249,115,22,.08)}
+    .btn-danger{background:linear-gradient(135deg,#EF4444,#DC2626);color:#fff}
+    .btn-danger:hover{background:linear-gradient(135deg,#F87171,#EF4444);transform:translateY(-1px)}
+    .btn-icon{background:transparent;border:none;cursor:pointer;padding:.375rem;border-radius:.5rem;color:#64748b;transition:all .15s}
+    .btn-icon:hover{color:#f1f5f9;background:rgba(255,255,255,.06)}
+
+    /* Inputs */
+    .inp{background:rgba(17,31,53,.6);border:1px solid rgba(100,116,139,.22);border-radius:.75rem;color:#f1f5f9;padding:.6rem .85rem;font-size:.875rem;width:100%;outline:none;transition:border-color .18s;font-family:'Inter',sans-serif}
+    .inp:focus{border-color:rgba(249,115,22,.5);box-shadow:0 0 0 3px rgba(249,115,22,.1)}
+    .inp::placeholder{color:#334155}
+    .inp option{background:#0d1829;color:#f1f5f9}
+    .lbl{font-size:.7rem;font-weight:600;color:#64748b;letter-spacing:.06em;text-transform:uppercase;margin-bottom:.3rem;display:block}
+
+    /* Nav */
+    .nav-item{display:flex;align-items:center;gap:.6rem;padding:.45rem .75rem;border-radius:.6rem;color:#64748b;font-size:.85rem;font-weight:500;cursor:pointer;transition:all .15s;user-select:none}
+    .nav-item:hover{background:rgba(249,115,22,.1);color:#f1f5f9}
+    .nav-item.active{background:rgba(249,115,22,.14);color:#F97316}
+
+    /* Cards */
+    .proj-card{transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer}
+    .proj-card:hover{transform:translateY(-3px);box-shadow:0 14px 40px rgba(0,0,0,.4);border-color:rgba(249,115,22,.32)!important}
+    .task-card{transition:transform .15s,box-shadow .15s,border-color .15s;cursor:pointer}
+    .task-card:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,.35);border-color:rgba(249,115,22,.28)!important}
+
+    /* Progress */
+    .prog-track{background:rgba(100,116,139,.18);border-radius:9999px;height:3px;overflow:hidden}
+    .prog-fill{height:100%;border-radius:9999px;background:linear-gradient(90deg,#F97316,#FB923C);transition:width .3s}
+
+    /* Tags */
+    .tag-chip{display:inline-flex;align-items:center;gap:.2rem;padding:.1rem .45rem;border-radius:9999px;font-size:.62rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+
+    /* Scrollbar */
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(100,116,139,.35);border-radius:10px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(249,115,22,.5)}
+
+    /* Modal */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+    .modal-bg.open{opacity:1;pointer-events:all}
+    .modal-box{transform:scale(.95) translateY(12px);transition:transform .22s}
+    .modal-bg.open .modal-box{transform:scale(1) translateY(0)}
+
+    /* Color picker */
+    .cswatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;flex-shrink:0}
+    .cswatch:hover{transform:scale(1.18)}
+    .cswatch.on{border-color:#fff;box-shadow:0 0 0 3px rgba(249,115,22,.5)}
+
+    /* Icon picker */
+    .iopt{width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:.5rem;cursor:pointer;color:#64748b;border:1px solid transparent;transition:all .15s;flex-shrink:0}
+    .iopt:hover{background:rgba(249,115,22,.1);color:#F97316}
+    .iopt.on{background:rgba(249,115,22,.18);color:#F97316;border-color:rgba(249,115,22,.35)}
+
+    /* Toast */
+    #toasts{position:fixed;bottom:1.5rem;right:1.5rem;z-index:500;display:flex;flex-direction:column;gap:.45rem;pointer-events:none}
+    .toast{padding:.65rem 1rem;border-radius:.75rem;font-size:.82rem;font-weight:500;display:flex;align-items:center;gap:.45rem;animation:slideIn .25s ease;pointer-events:none}
+    .toast-ok{background:rgba(16,185,129,.13);border:1px solid rgba(16,185,129,.28);color:#6ee7b7}
+    .toast-err{background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.28);color:#fca5a5}
+    @keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+
+    /* Spinner */
+    .spin{width:22px;height:22px;border:2px solid rgba(249,115,22,.25);border-top-color:#F97316;border-radius:50%;animation:rot .75s linear infinite}
+
+    /* Drag and drop */
+    .task-card.dragging{opacity:.35;pointer-events:none}
+    .col-drop-active{background:rgba(249,115,22,.07)!important;outline:2px dashed rgba(249,115,22,.45);outline-offset:-2px;border-radius:.75rem}
+    .task-card.drop-before{border-top:2px solid #F97316!important}
+    .task-card.drop-after{border-bottom:2px solid #F97316!important}
+    .k-col.col-reorder-before{box-shadow:-3px 0 0 0 #F97316}
+    .k-col.col-reorder-after{box-shadow:3px 0 0 0 #F97316}
+    .k-col-header{cursor:grab}.k-col-header:active{cursor:grabbing}
+    .k-col-header.col-dragging{opacity:.45}
+    @keyframes rot{to{transform:rotate(360deg)}}
+
+    /* Completed task */
+    .done .task-title{text-decoration:line-through;opacity:.45}
+    .done{opacity:.7}
+
+    /* Kanban */
+    .k-col{width:296px;flex-shrink:0}
+    .k-col-body{background:rgba(10,19,39,.92)!important;backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.05)}
+
+    /* Wide modal (task editor) */
+    .modal-box.modal-lg{max-width:52rem!important}
+
+    /* Task editor metadata rows */
+    .meta-row{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;border-radius:.65rem;background:rgba(10,19,39,.55);border:1px solid rgba(51,65,85,.15)}
+    .meta-label{font-size:.65rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.1em;flex-shrink:0;white-space:nowrap}
+    .meta-select,.meta-input{background:transparent;border:none;outline:none;text-align:right;font-size:.8rem;font-weight:600;color:#f1f5f9;cursor:pointer;font-family:inherit}
+    .meta-select option{background:#0d1829;color:#f1f5f9}
+    .meta-input[type="number"]{max-width:5rem}
+    .meta-input[type="datetime-local"]{max-width:13rem;color-scheme:dark}
+
+    /* Auth wall */
+    #auth-wall{position:fixed;inset:0;background:#080f1e;z-index:400;display:flex;align-items:center;justify-content:center}
+  </style>
+</head>
+<body>
+
+<!-- AUTH WALL -->
+<div id="auth-wall">
+  <div class="glass-modal rounded-2xl w-full max-w-sm mx-4 p-8">
+    <div class="flex items-center gap-3 mb-8">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(135deg,#F97316,#EA580C)">
+        <span class="ms text-white" style="font-size:20px">bolt</span>
+      </div>
+      <div>
+        <div class="text-lg font-bold text-white">JKanban</div>
+        <div class="text-xs text-slate-600">Precision Workflow</div>
+      </div>
+    </div>
+
+    <!-- Error display -->
+    <div id="aw-err" style="display:none" class="mb-4 px-3 py-2.5 rounded-xl text-sm" style="background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.28);color:#fca5a5"></div>
+
+    <!-- Login form -->
+    <div id="aw-login">
+      <div class="text-base font-bold text-white mb-1">Iniciar sesión</div>
+      <div class="text-xs text-slate-500 mb-6">Accede a tu espacio de trabajo</div>
+      <form onsubmit="doLogin(event)">
+        <div class="mb-3">
+          <label class="lbl">Email</label>
+          <input id="aw-email" type="email" class="inp" placeholder="tu@email.com" required>
+        </div>
+        <div class="mb-5">
+          <label class="lbl">Contraseña</label>
+          <input id="aw-pass" type="password" class="inp" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-full justify-center py-2.5 text-sm">Entrar</button>
+      </form>
+      <div class="text-center mt-5 text-xs text-slate-600">
+        ¿Sin cuenta?
+        <span class="text-primary cursor-pointer hover:underline" onclick="awToggle(true)">Regístrate</span>
+      </div>
+    </div>
+
+    <!-- Register form -->
+    <div id="aw-register" style="display:none">
+      <div class="text-base font-bold text-white mb-1">Crear cuenta</div>
+      <div class="text-xs text-slate-500 mb-6">Únete al espacio de trabajo</div>
+      <form onsubmit="doRegister(event)">
+        <div class="mb-3">
+          <label class="lbl">Nombre</label>
+          <input id="aw-rname" class="inp" placeholder="Alice Martín" required>
+        </div>
+        <div class="mb-3">
+          <label class="lbl">Email</label>
+          <input id="aw-remail" type="email" class="inp" placeholder="tu@email.com" required>
+        </div>
+        <div class="mb-5">
+          <label class="lbl">Contraseña</label>
+          <input id="aw-rpass" type="password" class="inp" placeholder="mín. 6 caracteres" required minlength="6">
+        </div>
+        <button type="submit" class="btn btn-primary w-full justify-center py-2.5 text-sm">Registrarse</button>
+      </form>
+      <div class="text-center mt-5 text-xs text-slate-600">
+        ¿Ya tienes cuenta?
+        <span class="text-primary cursor-pointer hover:underline" onclick="awToggle(false)">Iniciar sesión</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="flex h-screen overflow-hidden" style="display:none!important">
+
+  <!-- SIDEBAR -->
+  <aside id="sb" class="w-56 flex-shrink-0 flex flex-col py-5 px-3 overflow-y-auto" style="background:linear-gradient(180deg,#161e2e 0%,#0f1729 100%);box-shadow:2px 0 24px rgba(0,0,0,.35)">
+    <div class="flex items-center gap-2 px-2 mb-7">
+      <div class="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style="background:linear-gradient(135deg,#F97316,#EA580C)">
+        <span class="ms text-white" style="font-size:17px">bolt</span>
+      </div>
+      <div>
+        <div class="text-sm font-bold text-white">JKanban</div>
+        <div class="text-xs text-slate-600 -mt-0.5">Precision Workflow</div>
+      </div>
+    </div>
+    <div id="sb-nav" class="flex flex-col gap-0.5 flex-1"></div>
+    <div id="sb-actions" class="mt-4 flex flex-col gap-2"></div>
+    <div id="sb-user"></div>
+    <div class="pt-3 border-t" style="border-color:rgba(255,255,255,.05)">
+      <div class="nav-item" style="color:#f87171" onclick="doLogout()" onmouseenter="this.style.background='rgba(239,68,68,.08)'" onmouseleave="this.style.background=''">
+        <span class="ms ms-sm">logout</span>Cerrar sesión
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN WRAPPER -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header id="hdr" class="h-14 flex items-center justify-between px-6 border-b flex-shrink-0" style="background:#070e1c;border-color:rgba(255,255,255,.05)">
+      <div id="hdr-bc" class="flex items-center gap-1.5 text-sm text-slate-500"></div>
+      <div id="hdr-act" class="flex items-center gap-2.5"></div>
+    </header>
+    <main id="content" class="flex-1 overflow-auto">
+      <div class="flex items-center justify-center h-full"><div class="spin"></div></div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-bg" class="modal-bg" onclick="bgClose(event)">
+  <div class="modal-box glass-modal rounded-2xl w-full max-w-lg mx-4 p-6 relative" style="max-height:90vh;overflow-y:auto">
+    <div id="modal-inner"></div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<!-- Foundation -->
+<script src="/static/js/state.js"></script>
+<script src="/static/js/utils.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/auth.js"></script>
+<script src="/static/js/router.js"></script>
+<script src="/static/js/render.js"></script>
+<!-- Views -->
+<script src="/static/js/views/dashboard.js"></script>
+<script src="/static/js/views/board.js"></script>
+<script src="/static/js/views/tags.js"></script>
+<script src="/static/js/views/priorities.js"></script>
+<script src="/static/js/views/team.js"></script>
+<!-- Modals -->
+<script src="/static/js/modals/base.js"></script>
+<script src="/static/js/modals/project.js"></script>
+<script src="/static/js/modals/group.js"></script>
+<script src="/static/js/modals/task.js"></script>
+<script src="/static/js/modals/subtask.js"></script>
+<script src="/static/js/modals/tag.js"></script>
+<script src="/static/js/modals/priority.js"></script>
+<script src="/static/js/modals/user.js"></script>
+<!-- Behaviour -->
+<script src="/static/js/dnd.js"></script>
+<script src="/static/js/delete.js"></script>
+<script src="/static/js/flows.js"></script>
+<!-- Init -->
+<script>
+// ═══════════════════════════════════
+// INIT
+// ═══════════════════════════════════
+(async()=>{
+  loadStoredUser();
+  if (!getToken()) {
+    // Show auth wall (already visible by default)
+    return;
+  }
+  try {
+    showApp();
+    await loadAll();
+    await route();
+  } catch(err) {
+    if (err.message.includes('Sesión expirada')) return;
+    document.getElementById('content').innerHTML = `
+      <div class="flex flex-col items-center justify-center h-full">
+        <span class="ms mb-3" style="font-size:36px;color:#EF4444">error</span>
+        <div class="text-red-400 text-sm mb-4">${esc(err.message)}</div>
+        <button class="btn btn-ghost" onclick="location.reload()">Reintentar</button>
+      </div>`;
+  }
+})();
+</script>
+</body>
+</html>

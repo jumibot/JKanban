@@ -1,17 +1,35 @@
+import os
 import tempfile
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Patch DB_PATH BEFORE importing app.main (main.py llama init_db() al importar)
-import app.infrastructure.database as db_module
+# Con SQLite (engine por defecto) se redirige la BD a un fichero temporal ANTES
+# de importar la app. db_settings.sqlite_path lee os.environ["SQLITE_PATH"] en
+# cada acceso (lazy), así que init_db() y todos los get_connection() posteriores
+# abren el temp file, nunca tasks.db.
+# Con otro engine (DB_ENGINE=postgres…) la conexión de pruebas se configura por
+# entorno (p.ej. DATABASE_URL apuntando a una BD desechable de tests).
+if os.environ.get("DB_ENGINE", "sqlite") == "sqlite":
+    _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    _tmp_db.close()
+    os.environ["SQLITE_PATH"] = _tmp_db.name
 
-_tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-_tmp_db.close()
-db_module.DB_PATH = Path(_tmp_db.name)
+from backend.infrastructure.persistence.factory import reset_tables  # noqa: E402
+from backend.interfaces.dependencies import get_user_use_cases  # noqa: E402
+from backend.main import app  # noqa: E402
 
-from app.main import app  # noqa: E402
+# Orden hijo → padre para respetar las FKs
+_TABLES = [
+    "flow_state_changes", "todo_items", "task_tags", "group_tags", "tasks", "tags",
+    "flow_transitions", "flow_states", "flows",
+    "project_members", "groups", "projects", "users", "priorities",
+]
+
+
+def make_admin(user_id: int) -> None:
+    """Promote a user to platform admin (no SQL: goes through the use case)."""
+    get_user_use_cases().update(user_id, {"is_admin": True})
 
 
 @pytest.fixture(scope="module")
@@ -40,9 +58,7 @@ def admin_auth(client: TestClient):
         "name": "AdminUser", "email": "_admin@test.com", "password": "adminpass123",
     })
     user = r.json()
-    with db_module.get_connection() as conn:
-        conn.execute("UPDATE users SET is_admin=1 WHERE id=?", (user["id"],))
-        conn.commit()
+    make_admin(user["id"])
     lr = client.post("/auth/login", json={"email": "_admin@test.com", "password": "adminpass123"})
     token = lr.json()["access_token"]
     user["is_admin"] = True
@@ -51,21 +67,5 @@ def admin_auth(client: TestClient):
 
 @pytest.fixture(autouse=True)
 def clean_db():
-    """Vacía todas las tablas antes de cada test respetando el orden FK."""
-    with db_module.get_connection() as conn:
-        conn.execute("DELETE FROM todo_items")
-        conn.execute("DELETE FROM task_tags")
-        conn.execute("DELETE FROM group_tags")
-        conn.execute("DELETE FROM tasks")
-        conn.execute("DELETE FROM tags")
-        conn.execute("DELETE FROM project_members")
-        conn.execute("DELETE FROM groups")
-        conn.execute("DELETE FROM projects")
-        conn.execute("DELETE FROM users")
-        conn.execute("DELETE FROM priorities")
-        for tbl in (
-            "todo_items", "task_tags", "group_tags", "tasks", "tags",
-            "project_members", "groups", "projects", "users", "priorities",
-        ):
-            conn.execute("DELETE FROM sqlite_sequence WHERE name=?", (tbl,))
-        conn.commit()
+    """Vacía todas las tablas antes de cada test y reinicia los contadores de ID."""
+    reset_tables(_TABLES)
