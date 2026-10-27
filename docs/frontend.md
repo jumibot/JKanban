@@ -9,6 +9,7 @@
 - [Pipeline de render](#pipeline-de-render-jsrenderjs)
 - [Sistema de modales](#sistema-de-modales-jsmodalsbasejs)
 - [Módulos de vistas y modales](#módulos-de-vistas-y-modales)
+- [Flujos y estados](#flujos-y-estados-jsflowsjs)
 - [Seguridad frontend](#seguridad-frontend)
 - [Drag & Drop](#drag--drop-jsdndjs)
 
@@ -21,7 +22,7 @@ SPA (Single-Page Application) en Vanilla JS con routing por hash. Sin bundler ni
 **Orden de carga de scripts:**
 ```
 state.js → utils.js → api.js → auth.js → router.js → render.js
-→ views/* → modals/* → dnd.js → delete.js → [init IIFE]
+→ views/* → modals/* → dnd.js → delete.js → flows.js → [init IIFE]
 ```
 
 ---
@@ -36,17 +37,20 @@ S = {
   groups:      [],        // GroupResponse[]   — todos los grupos
   tasks:       [],        // TaskResponse[]    — todas las tareas
   users:       [],        // UserResponse[]    — todos los usuarios
-  tags:        [],        // TagResponse[]     — etiquetas del proyecto actual
+  tags:        [],        // TagResponse[]     — etiquetas usables en el proyecto actual (globales + propias)
   priorities:  [],        // PriorityResponse[]— prioridades del proyecto actual
+  flows:       [],        // FlowResponse[]    — flujos usables en el proyecto actual (globales + propios)
+  gtags:       [],        // TagResponse[]     — etiquetas globales (solo en la vista globals)
+  gflows:      [],        // FlowResponse[]    — flujos globales (solo en la vista globals)
   members:     [],        // UserResponse[]    — miembros del proyecto actual
-  view:        'dashboard', // 'dashboard' | 'board' | 'team'
+  view:        'dashboard', // 'dashboard' | 'board' | 'team' | 'globals'
   pid:         null,      // int | null — project_id activo
   subview:     'kanban',  // 'kanban' | 'tags' | 'priorities' | 'team'
   currentUser: null,      // UserResponse | null
 }
 ```
 
-`tags`, `priorities` y `members` son project-scoped: se recargan cuando cambia `S.pid`.
+`tags`, `priorities`, `flows` y `members` son project-scoped: se recargan cuando cambia `S.pid`.
 
 ---
 
@@ -59,8 +63,10 @@ POST(path, body)
 PATCH(path, body)
 DEL(path)
 
-loadAll()      // carga projects+groups+tasks+users en paralelo
-               // si S.pid: también tags y priorities
+loadAll()         // carga projects+groups+tasks+users en paralelo
+                  // si S.pid: también loadProjectMeta(); si S.view==='globals': loadGlobals()
+loadProjectMeta() // tags, priorities y flows del proyecto actual
+loadGlobals()     // gtags y gflows (panel de administración)
 loadMembers()  // carga S.members para el proyecto actual
 ```
 
@@ -81,6 +87,7 @@ Hash-based. Se ejecuta en `hashchange` y al arrancar.
 | `#/board/{pid}/priorities` | Gestión prioridades | acceso al proyecto |
 | `#/board/{pid}/team` | Equipo del proyecto | acceso al proyecto |
 | `#/team` | Panel admin usuarios | `is_admin` |
+| `#/admin/flows` | Flujos y etiquetas globales | `is_admin` |
 
 Al cambiar de proyecto (`newPid !== S.pid`) recarga tags y priorities. IDs no numéricos redirigen a `#/`.
 
@@ -99,6 +106,7 @@ render()
       board/priorities → vProjectPriorities()
       board/team  → vProjectTeam()
       team        → vTeam()
+      globals     → vGlobals()
 ```
 
 Todas las funciones de vista retornan HTML como string y se insertan con `innerHTML`. El render es completo en cada ciclo (no virtual DOM).
@@ -128,17 +136,39 @@ Los modales de creación/edición siempre terminan con: `closeM() → await load
 | `views/dashboard.js` | `vDashboard()`, `projCard(p, taskStats, groupCounts)` |
 | `views/board.js` | `vBoard()`, `kanbanCol(g)`, `taskCard(t)` |
 | `views/team.js` | `vProjectTeam()`, `vTeam()` |
-| `views/tags.js` | `vProjectTags()` |
+| `views/tags.js` | `vProjectTags()`: etiquetas y flujos del proyecto (editables) y globales (solo lectura) |
 | `views/priorities.js` | `vProjectPriorities()` |
 | `modals/project.js` | `mProject(id?)`, `mProjectTeam()`, `mProjectMenu(id)` |
 | `modals/group.js` | `mGroup(id?)`, `mColMenu(id)` |
 | `modals/task.js` | `mTask(taskId?, groupId?)`, `saveTask()`, `renderTTagSection()`, `renderPrioritySection()` |
-| `modals/tag.js` | `mProjectTags(pid)`, `mTag(id?)` |
+| `modals/tag.js` | `mTag(id?, scope='project'\|'global')`, `saveTag()`; selector de flujo |
 | `modals/priority.js` | `mProjectPriorities(pid)`, `mPriority(id?)` |
 | `modals/user.js` | `mUser()`, `mEditProfile()`, `mAdminEditUser(id)`, `confirmDelUser(id)` |
 | `modals/subtask.js` | `loadTodos(taskId)`, `addTodo(taskId)`, `toggleTodo(taskId, todoId)` |
-| `delete.js` | `confirmDel(type, id)`, `execDel(type, id)` |
+| `delete.js` | `confirmDel(type, id)`, `execDel(type, id)`; tipos `gtag` y `flow` incluidos |
+| `flows.js` | Flujos y estados: `tagChip()`, `mFlowState()` (cambio de estado con nota e historial), `mFlowNew()`, `mFlowEdit()` (editor de estados y matriz de transiciones), `vGlobals()`, `tagCards()`, `flowCards()`; permisos `canManageProject()`, `canManageScope()` |
 | `dnd.js` | Drag & drop de tarjetas entre columnas y reordenación de columnas |
+
+---
+
+## Flujos y estados (`js/flows.js`)
+
+Ver la especificación en [flows.md](flows.md).
+
+- **Chips de estado:** en tarjetas y en la cabecera de las columnas, una etiqueta
+  con flujo se pinta como `Etiqueta: Estado` (`tagChip(tg, kind, itemId)`). Al
+  pulsarlo se abre `mFlowState`, que solo ofrece los destinos permitidos por las
+  transiciones, admite una nota y muestra el historial del elemento.
+- **Vista de etiquetas del proyecto** (`#/board/{pid}/tags`): etiquetas y flujos
+  propios, editables por owner/leader/admin; los globales, en solo lectura.
+- **Panel global** (`#/admin/flows`, solo admin): etiquetas y flujos globales.
+- **Editor de flujo:** nombre, estados (color, nombre, inicial, borrar), alta de
+  estados y matriz de transiciones desde × hacia. Cada cambio se envía al momento
+  y el editor se vuelve a pintar con la respuesta (`flowOp` → `refreshFlowEditor`).
+  Borrar un estado pide un segundo clic en 3 s (`armThen`); si está en uso, el
+  backend responde 409 y se muestra en un toast.
+- **Grupos:** el modal de grupo tiene casillas de etiquetas; al guardar asigna y
+  desasigna por diferencia.
 
 ---
 

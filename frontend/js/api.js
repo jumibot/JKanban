@@ -25,18 +25,27 @@ async function loadAll() {
   [S.projects, S.groups, S.tasks, S.users] = await Promise.all([
     GET('/projects/'), GET('/groups/'), GET('/tasks/'), GET('/users/'),
   ]);
-  // Tags and priorities are project-scoped — reload them when inside a board
+  // Tags, flows and priorities of the open project (tags and flows include the global ones)
   if (S.pid) {
-    const [tags, priorities] = await Promise.all([
-      GET(`/projects/${S.pid}/tags/`).catch(() => []),
-      GET(`/projects/${S.pid}/priorities/`).catch(() => []),
-    ]);
-    S.tags = tags;
-    S.priorities = priorities;
+    await loadProjectMeta();
   } else {
-    S.tags = [];
-    S.priorities = [];
+    S.tags = []; S.priorities = []; S.flows = [];
   }
+  if (S.view === 'globals') await loadGlobals();
+}
+
+async function loadProjectMeta() {
+  const [tags, priorities, flows] = await Promise.all([
+    GET(`/projects/${S.pid}/tags/`).catch(() => []),
+    GET(`/projects/${S.pid}/priorities/`).catch(() => []),
+    GET(`/projects/${S.pid}/flows/`).catch(() => []),
+  ]);
+  S.tags = tags; S.priorities = priorities; S.flows = flows;
+}
+
+// Global flows and tags (admin panel).
+async function loadGlobals() {
+  [S.gflows, S.gtags] = await Promise.all([GET('/flows/'), GET('/tags/')]);
 }
 
 async function loadMembers() {

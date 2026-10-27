@@ -1,6 +1,6 @@
 # Flujos y etiquetas globales — especificación
 
-> Estado: **backend y MCP implementados** (pasos 1 y 2); web (paso 3) pendiente.
+> Estado: **implementado** (pasos 0 a 3: arranque vacío, backend, MCP y web).
 > Acordada con el propietario el 2026-10-27. Referencia de la API: [api.md](api.md#flows).
 > Origen: la Software Factory (SF) necesita estados con transiciones para su
 > trabajo (metodología, sección 4). En lugar de fijar en JKanban los estados del
@@ -221,8 +221,9 @@ Crear un flujo:
 - **Editor de flujo:** lista de estados (con el inicial marcado) y una matriz de
   transiciones desde × hacia con casillas.
 - **Tarjetas y columnas:** una etiqueta con flujo se muestra como
-  `Devslice: En desarrollo`, con un desplegable que solo ofrece los destinos
-  permitidos. El registro, en un desplegable o modal del elemento.
+  `Devslice: En desarrollo`; al pulsarlo se abre un modal que solo ofrece los
+  destinos permitidos, admite una nota y muestra el registro del elemento.
+- Detalle del frontend en [frontend.md](frontend.md#flujos-y-estados-jsflowsjs).
 
 ## 8. Migración
 

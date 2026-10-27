@@ -14,7 +14,7 @@ function mTask(taskId, groupId) {
   const doneLbl = t?.completed ? '#F97316' : '#64748b';
   document.querySelector('.modal-box').classList.add('modal-lg');
   showModal(`
-    <form onsubmit="saveTask(event,${taskId||'null'})">
+    <form onsubmit="saveTask(event,${taskId||'null'})" data-task-id="${taskId||''}">
       <input type="hidden" name="tag_ids" id="tid-inp" value="${[...selTags].join(',')}">
       <input type="hidden" name="priority_id" id="tpriority-inp" value="${t?.priority?.id||''}">
       <input type="hidden" name="group_id" value="${selG}">
@@ -111,9 +111,12 @@ function renderTTagSection() {
   const ids = inp.value ? inp.value.split(',').map(Number).filter(Boolean) : [];
   const selSet = new Set(ids);
   const selected = S.tags.filter(t => selSet.has(t.id));
+  // Estado actual de las etiquetas con flujo de la tarea abierta
+  const taskId = +(document.querySelector('#modal-inner form')?.dataset.taskId || 0);
+  const stateOf = tgId => S.tasks.find(x => x.id === taskId)?.tags.find(x => x.id === tgId)?.state?.name;
   container.innerHTML = `
     <div style="display:inline-flex;flex-wrap:wrap;gap:.375rem;align-items:center">
-      ${selected.map(tg=>`<div class="tag-chip" style="background:${tg.color}40;color:${tg.color};outline:2px solid ${tg.color}55;outline-offset:-1px">${esc(tg.name)}<span class="ms ms-xs" onclick="toggleTTag(${tg.id})" style="cursor:pointer;margin-left:3px;opacity:.6;vertical-align:middle">close</span></div>`).join('')}
+      ${selected.map(tg=>`<div class="tag-chip" style="background:${tg.color}40;color:${tg.color};outline:2px solid ${tg.color}55;outline-offset:-1px">${esc(tg.name)}${stateOf(tg.id) ? `: ${esc(stateOf(tg.id))}` : ''}<span class="ms ms-xs" onclick="toggleTTag(${tg.id})" style="cursor:pointer;margin-left:3px;opacity:.6;vertical-align:middle">close</span></div>`).join('')}
       ${S.tags.some(tg=>!selSet.has(tg.id)) ? `<div style="position:relative">
         <button type="button" onclick="toggleTTagPicker()" class="tag-chip" style="background:rgba(249,115,22,.08);color:#F97316;border:1px dashed rgba(249,115,22,.3)"><span class="ms ms-xs">add</span>Añadir etiqueta</button>
         <div id="ttag-picker" style="display:${pickerOpen?'block':'none'};position:absolute;left:0;top:calc(100% + 6px);background:#0d1829;border:1px solid rgba(249,115,22,.2);border-radius:.75rem;padding:.375rem;z-index:100;min-width:180px;box-shadow:0 8px 28px rgba(0,0,0,.55)">
