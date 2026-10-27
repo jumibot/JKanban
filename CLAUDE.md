@@ -6,7 +6,7 @@ Este proyecto se desarrolla con la Software Factory (SF), que llega como el plug
 
 - Método: la skill `sf:metodologia`, que dice qué parte del método leer en cada momento. JKanban es anterior a la SF: su documentación aún no sigue la estructura común (sección 6 del método).
 - Decisiones: en `docs/decisiones.md`, con su porqué (sección 6 del método). Aún no existe.
-- Estado en la SF: `docs/sf.json` (fase, devslice en curso, fases hechas, pendientes). Actualizarlo al cambiar de fase o de devslice. Lo muestra el plugin `sf` de la SF (línea de estado y `/sf`), instalado desde el catálogo publicado en GitHub.
+- Estado en la SF: carpeta `.sf/` (metodología, 6). `.sf/proyecto.json`, versionado, identifica el proyecto; `.sf/estado.json`, fuera de git, guarda la fase, la devslice en curso, las fases hechas y los pendientes. Actualizarlo al cambiar de fase o de devslice. Lo muestra el plugin `sf` de la SF (línea de estado y `/sf`), instalado desde el catálogo publicado en GitHub.
 - Mejora continua: las mejoras de la SF que se detecten aquí se registran en el proyecto **SoftwareFactory** del kanban (tarea «Mejorar la Software Factory»), indicando que el origen es JKanban y el contexto. Pedir aprobación antes de aplicarlas a la SF.
 
 ## Documentación técnica

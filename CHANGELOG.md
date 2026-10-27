@@ -4,6 +4,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Versionado semántico: el primer número sube cuando algo deja de ser compatible
 (API REST, herramientas del MCP o datos); el segundo, al añadir funciones; el tercero, en correcciones.
 
+## [Sin publicar]
+
+### Cambiado
+- Guías en `docs/guias/`: instalación desde cero (`instalacion.md`, antes `docs/installation.md`, ahora con el MCP) y actualización (`actualizacion.md`, nueva), como pide la Software Factory.
+
 ## [1.0.0] — 2026-10-27
 
 Primera versión estable: la que instala la Software Factory.

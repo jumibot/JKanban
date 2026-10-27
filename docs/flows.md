@@ -57,7 +57,7 @@ el único administrador es el de esos datos, con una contraseña ficticia.
   - Si existe, lo convierte en administrador; con `--password`, además fija la
     contraseña.
   - Respeta `SQLITE_PATH` y crea la base de datos si no existe.
-- **Guía de instalación** (`docs/installation.md`): usa este comando en lugar de
+- **Guía de instalación** (`docs/guias/instalacion.md`): usa este comando en lugar de
   fijar la contraseña del administrador de demostración, y documenta
   `JKANBAN_DEMO_DATA`.
 - Se descarta «el primer usuario registrado es administrador»: si la instancia es

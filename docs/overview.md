@@ -89,7 +89,7 @@ python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 | `JKANBAN_ADMIN_PASSWORD` | — | Contraseña para `python -m backend.create_admin` |
 
 El primer administrador se crea con `python -m backend.create_admin` (ver
-[Instalación](installation.md#4-base-de-datos-y-administrador)).
+[Instalación](guias/instalacion.md#4-base-de-datos-y-administrador)).
 
 ---
 
@@ -99,7 +99,8 @@ Este documento es el punto de entrada. Los documentos siguientes cubren cada ár
 
 | Documento | Contenido |
 |-----------|-----------|
-| [Instalación](installation.md) | Instalar JKanban en una carpeta nueva paso a paso (pensado para que lo ejecute Claude Code): clonado, venv, contraseña del admin, variables de entorno y verificación. |
+| [Instalación](guias/instalacion.md) | Instalar JKanban desde cero en una carpeta nueva, paso a paso (pensado para que lo ejecute Claude Code): clonado, venv, contraseña del admin, variables de entorno, verificación y MCP. |
+| [Actualización](guias/actualizacion.md) | Pasar una instalación a una versión nueva: qué leer antes, copia de la base de datos, cambio de versión, dependencias, verificación y vuelta atrás. |
 | [Flujos y etiquetas globales](flows.md) | Especificación de los flujos (estados y transiciones asignables a etiquetas, con registro de cambios) y de las etiquetas globales. Implementado en backend, MCP y web. |
 | [Servidor MCP](mcp.md) | `jkanban_mcp`: tools MCP para que el proyecto SF guarde planes y actividades (plan = grupo, actividad = tarea, paso = subtarea) a través de la API REST. Instalación y registro en Claude Code. |
 | [Arquitectura del backend](architecture.md) | Clean Architecture: responsabilidades de cada capa, flujo de request, inyección de dependencias, patrones. Incluye anexo sobre cómo añadir un engine de BD. |
