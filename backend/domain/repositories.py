@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
-from backend.domain.entities import Group, Priority, Project, ProjectContentCounts, Tag, Task, TodoItem, User
+from backend.domain.entities import (
+    Flow, FlowState, FlowStateChange, Group, Priority, Project, ProjectContentCounts, Tag, Task,
+    TodoItem, User,
+)
 
 
 class UserRepository(ABC):
@@ -155,14 +158,26 @@ class TodoRepository(ABC):
 
 
 class TagRepository(ABC):
+    """Tags and their assignment to tasks/groups.
+
+    `kind` is "task" or "group". Writes that change a flow state take the
+    FlowStateChange to log, so assignment and log are saved together.
+    """
     @abstractmethod
     def get_all(self) -> list[Tag]: ...
 
     @abstractmethod
-    def get_by_project(self, project_id: int) -> list[Tag]: ...
+    def get_global(self) -> list[Tag]: ...
+
+    @abstractmethod
+    def get_by_project(self, project_id: int) -> list[Tag]:
+        """Only the project's own tags (not the global ones)."""
 
     @abstractmethod
     def get_by_id(self, tag_id: int) -> Tag | None: ...
+
+    @abstractmethod
+    def get_by_flow(self, flow_id: int) -> list[Tag]: ...
 
     @abstractmethod
     def create(self, tag: Tag) -> Tag: ...
@@ -174,13 +189,71 @@ class TagRepository(ABC):
     def delete(self, tag_id: int) -> None: ...
 
     @abstractmethod
-    def assign_to_task(self, task_id: int, tag_id: int) -> None: ...
+    def count_assignments(self, tag_id: int) -> int: ...
 
     @abstractmethod
-    def unassign_from_task(self, task_id: int, tag_id: int) -> None: ...
+    def get_assignment(self, kind: str, item_id: int, tag_id: int) -> Tag | None:
+        """The tag as assigned to the item (with state_*), or None."""
 
     @abstractmethod
-    def assign_to_group(self, group_id: int, tag_id: int) -> None: ...
+    def assign(self, kind: str, item_id: int, tag_id: int, state_id: int | None,
+               user_id: int | None, change: FlowStateChange | None) -> None: ...
 
     @abstractmethod
-    def unassign_from_group(self, group_id: int, tag_id: int) -> None: ...
+    def unassign(self, kind: str, item_id: int, tag_id: int,
+                 change: FlowStateChange | None) -> None: ...
+
+    @abstractmethod
+    def set_state(self, kind: str, item_id: int, tag_id: int, state_id: int,
+                  change: FlowStateChange) -> None: ...
+
+    @abstractmethod
+    def get_history(self, kind: str, item_id: int, tag_id: int) -> list[FlowStateChange]: ...
+
+
+class FlowRepository(ABC):
+    @abstractmethod
+    def get_all(self) -> list[Flow]: ...
+
+    @abstractmethod
+    def get_global(self) -> list[Flow]: ...
+
+    @abstractmethod
+    def get_by_project(self, project_id: int) -> list[Flow]:
+        """Only the project's own flows (not the global ones)."""
+
+    @abstractmethod
+    def get_by_id(self, flow_id: int) -> Flow | None: ...
+
+    @abstractmethod
+    def create(self, flow: Flow, transitions: list[tuple[int, int]]) -> Flow:
+        """Create flow + flow.states; transitions are (from, to) indexes into flow.states."""
+
+    @abstractmethod
+    def rename(self, flow_id: int, name: str, user_id: int | None) -> None: ...
+
+    @abstractmethod
+    def delete(self, flow_id: int) -> None: ...
+
+    @abstractmethod
+    def add_state(self, flow_id: int, state: FlowState, user_id: int | None) -> FlowState: ...
+
+    @abstractmethod
+    def update_state(self, state: FlowState, user_id: int | None) -> None:
+        """Save name, color, sort_order; if is_initial, it becomes the only initial."""
+
+    @abstractmethod
+    def delete_state(self, flow_id: int, state_id: int, user_id: int | None) -> None:
+        """Delete the state and its transitions."""
+
+    @abstractmethod
+    def add_transition(self, flow_id: int, from_state_id: int, to_state_id: int,
+                       user_id: int | None) -> None: ...
+
+    @abstractmethod
+    def delete_transition(self, flow_id: int, from_state_id: int, to_state_id: int,
+                          user_id: int | None) -> None: ...
+
+    @abstractmethod
+    def state_usage(self, state_id: int) -> tuple[list[int], list[int]]:
+        """(task ids, group ids) whose tag is now in this state."""

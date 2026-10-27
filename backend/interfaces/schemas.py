@@ -1,7 +1,9 @@
 import re
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
-from backend.domain.entities import Group, Priority, Project, Tag, Task, TodoItem, User
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from backend.domain.entities import (
+    Flow, FlowStateChange, Group, Priority, Project, Tag, Task, TodoItem, User,
+)
 
 _HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
@@ -107,41 +109,177 @@ class PriorityResponse(BaseModel):
 # Tags
 # ---------------------------------------------------------------------------
 
+def _hex_color(v: str | None) -> str | None:
+    if v is None:
+        return v
+    if not _HEX_RE.match(v):
+        raise ValueError("Color must be in #RRGGBB hex format")
+    return v.upper()
+
+
+class NamedRef(BaseModel):
+    id: int
+    name: str
+
+
 class TagCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    color: str = "#6B7280"
+    flow_id: int | None = None
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v: str) -> str:
+        return _hex_color(v)
+
+
+class TagUpdate(BaseModel):
+    """flow_id: null removes the tag's flow (only if the tag is not assigned)."""
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    color: str | None = None
+    flow_id: int | None = None
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v: str | None) -> str | None:
+        return _hex_color(v)
+
+
+class TagResponse(BaseModel):
+    """project_id null = global tag. state is only set on tags read from a task/group."""
+    id: int
+    name: str
+    color: str
+    project_id: int | None = None
+    flow: NamedRef | None = None
+    state: NamedRef | None = None
+
+    @classmethod
+    def from_entity(cls, t: Tag) -> "TagResponse":
+        return cls(
+            id=t.id, name=t.name, color=t.color, project_id=t.project_id,
+            flow=NamedRef(id=t.flow_id, name=t.flow_name) if t.flow_id is not None else None,
+            state=NamedRef(id=t.state_id, name=t.state_name) if t.state_id is not None else None,
+        )
+
+
+class TagStateUpdate(BaseModel):
+    state_id: int
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class FlowStateChangeResponse(BaseModel):
+    id: int
+    tag_id: int
+    task_id: int | None
+    group_id: int | None
+    from_state: str | None
+    to_state: str | None
+    note: str | None
+    changed_by: int | None
+    changed_at: datetime | None
+
+    @classmethod
+    def from_entity(cls, c: FlowStateChange) -> "FlowStateChangeResponse":
+        return cls(
+            id=c.id, tag_id=c.tag_id, task_id=c.task_id, group_id=c.group_id,
+            from_state=c.from_state, to_state=c.to_state, note=c.note,
+            changed_by=c.changed_by, changed_at=c.changed_at,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Flows
+# ---------------------------------------------------------------------------
+
+class FlowStateIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     color: str = "#6B7280"
 
     @field_validator("color")
     @classmethod
     def validate_color(cls, v: str) -> str:
-        if not _HEX_RE.match(v):
-            raise ValueError("Color must be in #RRGGBB hex format")
-        return v.upper()
+        return _hex_color(v)
 
 
-class TagUpdate(BaseModel):
+class FlowTransitionIn(BaseModel):
+    """By state name: {"from": "A", "to": "B"}."""
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str = Field(..., alias="from", min_length=1)
+    to: str = Field(..., min_length=1)
+
+
+class FlowCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    states: list[FlowStateIn]
+    initial: str = Field(..., min_length=1)
+    transitions: list[FlowTransitionIn] = []
+
+
+class FlowUpdate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+
+
+class FlowStateCreate(FlowStateIn):
+    is_initial: bool = False
+
+
+class FlowStateUpdate(BaseModel):
+    """is_initial: true makes it the only initial state; false is rejected on the initial one."""
     name: str | None = Field(default=None, min_length=1, max_length=50)
     color: str | None = None
+    sort_order: int | None = None
+    is_initial: bool | None = None
 
     @field_validator("color")
     @classmethod
     def validate_color(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        if not _HEX_RE.match(v):
-            raise ValueError("Color must be in #RRGGBB hex format")
-        return v.upper()
+        return _hex_color(v)
 
 
-class TagResponse(BaseModel):
+class FlowTransitionCreate(BaseModel):
+    from_state_id: int
+    to_state_id: int
+
+
+class FlowStateResponse(BaseModel):
     id: int
     name: str
     color: str
-    project_id: int | None = None
+    sort_order: int
+    is_initial: bool
+
+
+class FlowTransitionResponse(BaseModel):
+    from_state_id: int
+    to_state_id: int
+
+
+class FlowResponse(BaseModel):
+    """project_id null = global flow."""
+    id: int
+    name: str
+    project_id: int | None
+    initial_state_id: int | None
+    states: list[FlowStateResponse]
+    transitions: list[FlowTransitionResponse]
+    created_at: datetime | None = None
+    modified_at: datetime | None = None
 
     @classmethod
-    def from_entity(cls, t: Tag) -> "TagResponse":
-        return cls(id=t.id, name=t.name, color=t.color, project_id=t.project_id)
+    def from_entity(cls, f: Flow) -> "FlowResponse":
+        initial = f.initial_state()
+        return cls(
+            id=f.id, name=f.name, project_id=f.project_id,
+            initial_state_id=initial.id if initial else None,
+            states=[FlowStateResponse(id=s.id, name=s.name, color=s.color,
+                                      sort_order=s.sort_order, is_initial=s.is_initial)
+                    for s in f.states],
+            transitions=[FlowTransitionResponse(from_state_id=t.from_state_id,
+                                                to_state_id=t.to_state_id)
+                         for t in f.transitions],
+            created_at=f.created_at, modified_at=f.modified_at,
+        )
 
 
 # ---------------------------------------------------------------------------

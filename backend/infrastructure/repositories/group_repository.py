@@ -72,14 +72,21 @@ class SqlGroupRepository(GroupRepository):
             return
         ids = [g.id for g in groups]
         rows = conn.execute(
-            f"""SELECT gt.group_id, t.id, t.name, t.color
+            f"""SELECT gt.group_id, t.id, t.name, t.color, t.project_id, t.flow_id,
+                       f.name AS flow_name, gt.state_id, s.name AS state_name
                 FROM group_tags gt JOIN tags t ON t.id = gt.tag_id
+                LEFT JOIN flows f ON f.id = t.flow_id
+                LEFT JOIN flow_states s ON s.id = gt.state_id
                 WHERE gt.group_id IN ({ph(len(ids))}) ORDER BY gt.group_id, t.id""",
             ids,
         ).fetchall()
         by_group: dict[int, list[Tag]] = {g.id: [] for g in groups}
         for r in rows:
-            by_group[r["group_id"]].append(Tag(id=r["id"], name=r["name"], color=r["color"]))
+            by_group[r["group_id"]].append(Tag(
+                id=r["id"], name=r["name"], color=r["color"], project_id=r["project_id"],
+                flow_id=r["flow_id"], flow_name=r["flow_name"],
+                state_id=r["state_id"], state_name=r["state_name"],
+            ))
         for group in groups:
             group.tags = by_group.get(group.id, [])
 

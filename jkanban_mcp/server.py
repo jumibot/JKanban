@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import os
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NotRequired, TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -31,6 +31,13 @@ Orden: reorder_plans, reorder_activities y reorder_steps reciben la lista comple
 de ids en el orden deseado. Etiquetas por nombre con tag_activity / tag_plan (las
 que no existen se crean). Prioridades: list_priorities y priority_id en las actividades.
 Para que una persona vea el proyecto en el tablero web, add_member(email).
+Flujos: un flujo define estados (uno inicial) y las transiciones permitidas, y se
+asocia a una etiqueta. Al poner esa etiqueta en un plan o actividad entra en el
+estado inicial; set_flow_state(tag, to, ...) la mueve solo por una transición
+existente, y get_flow_history muestra los cambios. ensure_flow deja un flujo como se
+define sin borrar nada (repetible). Flujos y etiquetas son globales (sin project_id;
+solo el administrador los gestiona) o de un proyecto. Planes y actividades muestran
+su estado en `states` ({etiqueta: estado}); find_activities filtra por `states`.
 Cada tool devuelve el estado guardado: un cambio solo está hecho si la tool lo confirma.
 Las fechas van en ISO 8601 (p. ej. 2026-10-26 o 2026-10-26T09:30:00).
 """
@@ -43,6 +50,23 @@ Hours = Annotated[float | None, Field(description="duración estimada en horas",
 PriorityId = Annotated[int | None, Field(description="id de una prioridad del proyecto (list_priorities)")]
 TagNames = Annotated[list[str] | None, Field(description="nombres de etiqueta; las que no existen se crean")]
 HexColor = Annotated[str | None, Field(description="color #RRGGBB", pattern=r"^#[0-9A-Fa-f]{6}$")]
+StateRef = Annotated[int | str, Field(description="id o nombre del estado")]
+FlowName = Annotated[str | None, Field(description="nombre del flujo de la etiqueta")]
+ScopeProject = Annotated[int | None, Field(
+    description="id del proyecto; sin él, ámbito global (solo administrador para crear o cambiar)")]
+
+
+class FlowStateDef(TypedDict):
+    name: str
+    color: NotRequired[str]
+
+
+Transition = TypedDict("Transition", {"from": str, "to": str})
+FlowStates = Annotated[list[str | FlowStateDef], Field(
+    description="estados en orden: nombres o {name, color}", min_length=1)]
+FlowTransitions = Annotated[list[Transition] | None, Field(
+    description='transiciones permitidas por nombre: [{"from": "A", "to": "B"}]')]
+
 Clearable = Literal["description", "priority", "estimated_duration", "estimated_start",
                     "estimated_end", "actual_start", "actual_end"]
 
@@ -105,7 +129,8 @@ def build_server(service: SFService) -> MCPServer:
             description="cuántas actividades pendientes mostrar por proyecto", ge=0, le=20)] = 3) -> dict:
         """Vista general de TODOS los proyectos sin entrar en cada uno: planes, actividades
         hechas/total, progreso, pasos, en curso (con inicio real y sin terminar), vencidas
-        (fin estimado pasado y sin terminar), última actividad y siguientes pendientes."""
+        (fin estimado pasado y sin terminar), última actividad, siguientes pendientes y
+        flow_states (planes y actividades por etiqueta y estado)."""
         return service.overview(next_count)
 
     @mcp.tool()
@@ -123,11 +148,14 @@ def build_server(service: SFService) -> MCPServer:
                             description="con inicio real y sin terminar")] = None,
                         modified_since: Annotated[str | None, Field(
                             description="modificadas (o creadas) desde esta fecha ISO 8601")] = None,
-                        limit: Annotated[int, Field(ge=1, le=500)] = 50) -> dict:
+                        limit: Annotated[int, Field(ge=1, le=500)] = 50,
+                        states: Annotated[dict[str, str] | None, Field(
+                            description='estado de etiquetas con flujo, p. ej. {"Devslice": "En desarrollo"}')] = None,
+                        ) -> dict:
         """Busca actividades en todos los proyectos combinando filtros (todos deben cumplirse).
         Cada resultado incluye proyecto y plan. Respuesta: {total, returned, activities}."""
         return service.find_activities(project_id, plan_id, done, tags, priority, text,
-                                       overdue, in_progress, modified_since, limit)
+                                       overdue, in_progress, modified_since, limit, states)
 
     # ── Miembros ──────────────────────────────────────────────────────────
 
@@ -261,25 +289,123 @@ def build_server(service: SFService) -> MCPServer:
     # ── Etiquetas ─────────────────────────────────────────────────────────
 
     @mcp.tool()
-    def list_tags(project_id: ProjectId) -> list[dict]:
-        """Etiquetas definidas en el proyecto."""
+    def list_tags(project_id: Annotated[int | None, Field(
+            description="id del proyecto; sin él, solo las globales")] = None) -> list[dict]:
+        """Etiquetas globales y, con project_id, también las del proyecto."""
         return service.list_tags(project_id)
 
     @mcp.tool()
-    def create_tag(project_id: ProjectId, name: str, color: HexColor = None) -> dict:
-        """Crea una etiqueta en el proyecto."""
-        return service.create_tag(project_id, name, color)
+    def create_tag(name: str, project_id: ScopeProject = None, color: HexColor = None,
+                   flow: FlowName = None) -> dict:
+        """Crea una etiqueta global (sin project_id) o de un proyecto, opcionalmente con
+        flujo (una global solo puede usar flujos globales)."""
+        return service.create_tag(name, project_id, color, flow)
 
     @mcp.tool()
-    def update_tag(project_id: ProjectId, tag_id: int, name: str | None = None,
-                   color: HexColor = None) -> dict:
-        """Renombra o recolorea una etiqueta."""
-        return service.update_tag(project_id, tag_id, name, color)
+    def update_tag(tag_id: int, project_id: Annotated[int | None, Field(
+                       description="id del proyecto si la etiqueta es de un proyecto")] = None,
+                   name: str | None = None, color: HexColor = None, flow: FlowName = None,
+                   remove_flow: bool = False) -> dict:
+        """Renombra, recolorea o cambia el flujo de una etiqueta. Cambiar o quitar el flujo
+        falla si la etiqueta está puesta en algún plan o actividad."""
+        return service.update_tag(tag_id, project_id, name, color, flow, remove_flow)
 
     @mcp.tool()
-    def delete_tag(project_id: ProjectId, tag_id: int) -> dict:
-        """Borra una etiqueta del proyecto (y la quita de planes y actividades)."""
-        return service.delete_tag(project_id, tag_id)
+    def delete_tag(tag_id: int, project_id: Annotated[int | None, Field(
+            description="id del proyecto si la etiqueta es de un proyecto")] = None) -> dict:
+        """Borra una etiqueta (y la quita de planes y actividades, con su historial)."""
+        return service.delete_tag(tag_id, project_id)
+
+    # ── Flujos ────────────────────────────────────────────────────────────
+
+    @mcp.tool()
+    def list_flows(project_id: Annotated[int | None, Field(
+            description="id del proyecto; sin él, solo los globales")] = None) -> list[dict]:
+        """Flujos globales y, con project_id, también los del proyecto."""
+        return service.list_flows(project_id)
+
+    @mcp.tool()
+    def create_flow(name: str, states: FlowStates, initial: str,
+                    transitions: FlowTransitions = None,
+                    project_id: ScopeProject = None) -> dict:
+        """Crea un flujo: estados en orden, el inicial y las transiciones permitidas."""
+        return service.create_flow(name, states, initial, transitions, project_id)
+
+    @mcp.tool()
+    def ensure_flow(name: str, states: FlowStates, initial: str,
+                    transitions: FlowTransitions = None,
+                    project_id: ScopeProject = None) -> dict:
+        """Deja el flujo como se define, de forma repetible: lo crea si no existe o le
+        añade los estados y transiciones que falten. Nunca borra ni cambia nada (ni el
+        inicial ni los colores). Respuesta: {flow, created, added_states,
+        added_transitions, extra_states, extra_transitions, initial_differs}."""
+        return service.ensure_flow(name, states, initial, transitions, project_id)
+
+    @mcp.tool()
+    def update_flow(flow_id: int, name: str) -> dict:
+        """Renombra un flujo."""
+        return service.update_flow(flow_id, name)
+
+    @mcp.tool()
+    def delete_flow(flow_id: int) -> dict:
+        """Borra un flujo. Falla si alguna etiqueta lo usa."""
+        return service.delete_flow(flow_id)
+
+    @mcp.tool()
+    def add_flow_state(flow_id: int, name: str, color: HexColor = None,
+                       initial: bool = False) -> dict:
+        """Añade un estado al final del flujo (initial=true lo hace el inicial)."""
+        return service.add_flow_state(flow_id, name, color, initial)
+
+    @mcp.tool()
+    def update_flow_state(flow_id: int, state: StateRef, name: str | None = None,
+                          color: HexColor = None,
+                          initial: Annotated[bool | None, Field(
+                              description="true = pasa a ser el estado inicial")] = None,
+                          order: Annotated[int | None, Field(description="posición (sort_order)")] = None,
+                          ) -> dict:
+        """Renombra, recolorea o reordena un estado, o lo convierte en el inicial
+        (solo afecta a las asignaciones futuras)."""
+        return service.update_flow_state(flow_id, state, name, color, initial, order)
+
+    @mcp.tool()
+    def delete_flow_state(flow_id: int, state: StateRef) -> dict:
+        """Borra un estado y sus transiciones. Falla si hay planes o actividades en él
+        o si es el inicial."""
+        return service.delete_flow_state(flow_id, state)
+
+    @mcp.tool()
+    def add_flow_transition(flow_id: int, from_state: StateRef, to_state: StateRef) -> dict:
+        """Permite pasar de un estado a otro."""
+        return service.add_flow_transition(flow_id, from_state, to_state)
+
+    @mcp.tool()
+    def remove_flow_transition(flow_id: int, from_state: StateRef, to_state: StateRef) -> dict:
+        """Quita una transición (los elementos en ese estado pueden quedarse sin salida)."""
+        return service.remove_flow_transition(flow_id, from_state, to_state)
+
+    # ── Estado de planes y actividades ────────────────────────────────────
+
+    @mcp.tool()
+    def set_flow_state(tag: Annotated[str, Field(description="nombre de la etiqueta con flujo")],
+                       to: Annotated[str, Field(description="nombre del estado destino")],
+                       plan_id: Annotated[int | None, Field(description="el plan, o bien...")] = None,
+                       activity_id: Annotated[int | None, Field(description="...la actividad")] = None,
+                       note: Annotated[str | None, Field(
+                           description="motivo; queda en el historial", max_length=1000)] = None) -> dict:
+        """Cambia el estado de una etiqueta en un plan o actividad (uno de los dos). Solo se
+        permite si el flujo tiene esa transición; si no, el error dice los destinos válidos.
+        Respuesta: {tag, flow, state, next, plan|activity}."""
+        return service.set_flow_state(tag, to, plan_id, activity_id, note)
+
+    @mcp.tool()
+    def get_flow_history(tag: Annotated[str, Field(description="nombre de la etiqueta")],
+                         plan_id: Annotated[int | None, Field(description="el plan, o bien...")] = None,
+                         activity_id: Annotated[int | None, Field(description="...la actividad")] = None,
+                         ) -> list[dict]:
+        """Historial de estados de una etiqueta en un plan o actividad: [{from, to, note,
+        by, at}]. Entrar en el flujo tiene from nulo; salir (quitar la etiqueta), to nulo."""
+        return service.get_flow_history(tag, plan_id, activity_id)
 
     # ── Prioridades ───────────────────────────────────────────────────────
 

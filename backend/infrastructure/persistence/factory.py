@@ -73,7 +73,8 @@ def reset_tables(tables: list[str]) -> None:
 # ── Initialisation ────────────────────────────────────────────────────────────
 
 def init_engine() -> None:
-    """Create schema, run migrations, and seed demo data for the configured engine."""
+    """Create schema, run migrations and, unless JKANBAN_DEMO_DATA is off,
+    seed demo data into an empty database."""
     engine = db_settings.engine
     if engine == "sqlite":
         from backend.infrastructure.persistence.sqlite.migrations import migrate
@@ -84,6 +85,7 @@ def init_engine() -> None:
             create_schema(conn)
             migrate(conn)
             conn.commit()
-        seed_db()
+        if db_settings.demo_data:
+            seed_db()
         return
     raise _unsupported(engine)

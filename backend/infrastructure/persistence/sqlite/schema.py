@@ -124,11 +124,45 @@ def create_schema(conn) -> None:
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS flows (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            modified_at TEXT,
+            created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            modified_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS flow_states (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            flow_id     INTEGER NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+            name        TEXT NOT NULL,
+            color       TEXT NOT NULL DEFAULT '#6B7280' CHECK(LENGTH(color)=7 AND SUBSTR(color,1,1)='#'),
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            is_initial  BOOLEAN NOT NULL DEFAULT 0,
+            UNIQUE(flow_id, name)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS flow_transitions (
+            flow_id       INTEGER NOT NULL REFERENCES flows(id) ON DELETE CASCADE,
+            from_state_id INTEGER NOT NULL REFERENCES flow_states(id) ON DELETE CASCADE,
+            to_state_id   INTEGER NOT NULL REFERENCES flow_states(id) ON DELETE CASCADE,
+            PRIMARY KEY (from_state_id, to_state_id),
+            CHECK (from_state_id <> to_state_id)
+        )
+    """)
+    # project_id NULL = global tag. Name uniqueness across scopes is checked
+    # in TagUseCases (UNIQUE does not treat NULLs as equal).
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS tags (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL,
-            project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
             color       TEXT NOT NULL DEFAULT '#6B7280' CHECK(LENGTH(color)=7 AND SUBSTR(color,1,1)='#'),
+            flow_id     INTEGER REFERENCES flows(id) ON DELETE SET NULL,
             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
             modified_at TEXT,
             created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -142,6 +176,7 @@ def create_schema(conn) -> None:
             tag_id     INTEGER NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
             created_at TEXT    NOT NULL DEFAULT (datetime('now')),
             created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            state_id   INTEGER REFERENCES flow_states(id) ON DELETE SET NULL,
             PRIMARY KEY (task_id, tag_id)
         )
     """)
@@ -151,6 +186,21 @@ def create_schema(conn) -> None:
             tag_id     INTEGER NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
             created_at TEXT    NOT NULL DEFAULT (datetime('now')),
             created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            state_id   INTEGER REFERENCES flow_states(id) ON DELETE SET NULL,
             PRIMARY KEY (group_id, tag_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS flow_state_changes (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id    INTEGER REFERENCES tasks(id)  ON DELETE CASCADE,
+            group_id   INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+            tag_id     INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            from_state TEXT,
+            to_state   TEXT,
+            note       TEXT,
+            changed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            changed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK ((task_id IS NULL) <> (group_id IS NULL))
         )
     """)

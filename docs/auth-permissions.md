@@ -58,7 +58,10 @@ Un usuario puede ser owner de un proyecto y member de otro simultáneamente.
 | Crear/editar tareas y grupos | ✓ | ✓ | ✓ | — |
 | Editar proyecto (nombre, color, etc.) | ✓ | ✓ | — | — |
 | Gestionar miembros (add/remove) | ✓ | ✓ | — | — |
-| Crear/editar etiquetas y prioridades | ✓ | ✓ | — | — |
+| Crear/editar etiquetas, flujos y prioridades del proyecto | ✓ | ✓ | — | — |
+| Asignar etiquetas, cambiar su estado, ver el registro | ✓ | ✓ | ✓ | — |
+| Crear/editar etiquetas y flujos **globales** | — | — | — | ✓ |
+| Ver etiquetas y flujos globales (cualquier usuario autenticado) | ✓ | ✓ | ✓ | ✓ |
 | Eliminar proyecto (simple) | ✓ | — | — | — |
 | Eliminar proyecto en cascada | ✓ | — | — | — |
 | Ver todos los usuarios | — | — | — | ✓ |

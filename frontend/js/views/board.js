@@ -46,6 +46,7 @@ function kanbanCol(g) {
           <button class="btn-icon" draggable="false" onclick="event.stopPropagation();mColMenu(${g.id})"><span class="ms ms-sm">more_horiz</span></button>
         </div>
       </div>
+      ${g.tags?.length ? `<div class="px-3 pt-2 flex flex-wrap gap-1">${g.tags.map(tg=>tagChip(tg,'group',g.id)).join('')}</div>` : ''}
       <div class="p-2.5 flex flex-col gap-2.5" id="col-${g.id}"
            ondragover="onColDragOver(event,${g.id})"
            ondragleave="onColDragLeave(event,${g.id})"
@@ -71,7 +72,7 @@ function taskCard(t) {
          ondragover="onCardDragOver(event,${t.id})"
          ondragleave="onCardDragLeave(event,${t.id})"
          onclick="mTask(${t.id},${t.group_id})">
-      ${t.tags.length ? `<div class="flex flex-wrap gap-1 mb-2">${t.tags.map(tg=>`<span class="tag-chip" style="background:${tg.color}20;color:${tg.color}">${esc(tg.name)}</span>`).join('')}</div>` : ''}
+      ${t.tags.length ? `<div class="flex flex-wrap gap-1 mb-2">${t.tags.map(tg=>tagChip(tg,'task',t.id)).join('')}</div>` : ''}
       <div class="flex items-start gap-1">
         <div class="task-title text-sm font-medium text-white leading-snug flex-1">${esc(t.title)}</div>
         <span class="ms ms-xs text-slate-500 flex-shrink-0 mt-0.5">edit</span>

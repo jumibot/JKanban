@@ -261,16 +261,16 @@ def test_clear_rejects_unknown_or_conflicting_fields(sf, project_id):
 # ── Etiquetas ─────────────────────────────────────────────────────────────
 
 def test_tags_crud(sf, project_id):
-    t = sf.create_tag(project_id, "backend", color="#00ff00")
+    t = sf.create_tag("backend", project_id, color="#00ff00")
     assert t["color"] == "#00FF00"
-    assert sf.update_tag(project_id, t["id"], name="Backend")["name"] == "Backend"
+    assert sf.update_tag(t["id"], project_id, name="Backend")["name"] == "Backend"
     assert [x["name"] for x in sf.list_tags(project_id)] == ["Backend"]
-    sf.delete_tag(project_id, t["id"])
+    sf.delete_tag(t["id"], project_id)
     assert sf.list_tags(project_id) == []
 
 
 def test_tag_activity_by_name_creates_missing_tags(sf, project_id):
-    sf.create_tag(project_id, "Backend")
+    sf.create_tag("Backend", project_id)
     plan = sf.create_plan(project_id, "Fase")["id"]
     act = sf.create_activity(plan, "T", tags=["backend", "bloqueada"])
     assert sorted(act["tags"]) == ["Backend", "bloqueada"]
@@ -295,7 +295,7 @@ def test_tag_plan(sf, project_id):
 
 def test_tags_are_per_project(sf, project_id):
     other = sf.ensure_project("Otro")["project"]["id"]
-    sf.create_tag(other, "compartida")
+    sf.create_tag("compartida", other)
     plan = sf.create_plan(project_id, "Fase")["id"]
     act = sf.create_activity(plan, "T", tags=["compartida"])
     assert act["tags"] == ["compartida"]

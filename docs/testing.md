@@ -31,7 +31,7 @@ El fixture `auth` devuelve `(user_dict, {"Authorization": "Bearer <token>"})`.
 
 ## Archivos de test
 
-334 tests en total.
+514 tests en total (más 1 que se salta en `.venv`: la capa MCP, que corre en `.venv-mcp`).
 
 | Archivo | Tests | Qué cubre |
 |---------|------:|-----------|
@@ -42,9 +42,16 @@ El fixture `auth` devuelve `(user_dict, {"Authorization": "Bearer <token>"})`.
 | `test_tasks.py` | 34 | CRUD tareas, asignación user/priority/tags, reordenación |
 | `test_todos.py` | 27 | CRUD subtareas, orden, FK con tarea |
 | `test_tags.py` | 42 | CRUD etiquetas, unicidad por proyecto, asignación a tareas |
+| `test_flows.py` | 63 | Flujos y etiquetas globales: definición, ámbitos y nombres, permisos, asignación y estados, registro, modificación en uso |
+| `test_flows_migration.py` | 4 | Migración de una BD anterior a los flujos (única excepción a «los tests no ejecutan SQL»: fabrica el esquema antiguo con `sqlite3`) |
+| `test_reorder.py` | 14 | Endpoints de ordenar: ids de otro proyecto/grupo, repetidos |
+| `test_task_priority_scope.py` | 7 | Prioridad de otro proyecto en una tarea (422) |
+| `test_bootstrap.py` | 21 | Arranque en vacío (`JKANBAN_DEMO_DATA`) y comando `create_admin` |
+| `test_mcp_service.py` | 44 | `SFService` del MCP contra la API real |
+| `test_mcp_flows.py` | 24 | Tools de flujos, etiquetas globales, estados e historial del MCP |
 | `test_priorities.py` | 30 | CRUD prioridades, unicidad por proyecto |
 | `test_admin.py` | 14 | Panel admin: deletion preview, cascade delete con contraseña |
-| `test_persistence_portability.py` | 41 | Guardas de arquitectura: SQL portable en repositorios, ningún acceso a BD fuera de ellos, cierre de conexiones, engines no soportados, normalización de fechas |
+| `test_persistence_portability.py` | 44 | Guardas de arquitectura: SQL portable en repositorios, ningún acceso a BD fuera de ellos, cierre de conexiones, engines no soportados, normalización de fechas |
 
 ---
 

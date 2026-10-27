@@ -12,6 +12,7 @@ function renderSidebar() {
   const isAdmin = !!(S.currentUser && S.currentUser.is_admin);
   const adminLink = isAdmin
     ? '<div class="nav-item' + (v==='team' ? ' active' : '') + '" onclick="go(\'#/team\')"><span class="ms ms-sm">manage_accounts</span>Usuarios</div>'
+      + '<div class="nav-item' + (v==='globals' ? ' active' : '') + '" onclick="go(\'#/admin/flows\')"><span class="ms ms-sm">account_tree</span>Flujos y etiquetas globales</div>'
     : '';
 
   if (v === 'board' && S.pid) {
@@ -31,7 +32,7 @@ function renderSidebar() {
       </div>
       <div class="text-xs font-semibold text-slate-700 uppercase px-2 mb-1 tracking-wider">Proyecto</div>
       <div class="nav-item ${sub==='kanban'?'active':''}" onclick="go('#/board/${S.pid}')"><span class="ms ms-sm">view_kanban</span>Grupos de tareas</div>
-      <div class="nav-item ${sub==='tags'?'active':''}" onclick="go('#/board/${S.pid}/tags')"><span class="ms ms-sm">label</span>Etiquetas</div>
+      <div class="nav-item ${sub==='tags'?'active':''}" onclick="go('#/board/${S.pid}/tags')"><span class="ms ms-sm">label</span>Etiquetas y flujos</div>
       <div class="nav-item ${sub==='priorities'?'active':''}" onclick="go('#/board/${S.pid}/priorities')"><span class="ms ms-sm">flag</span>Prioridades</div>
       <div class="nav-item ${sub==='team'?'active':''}" onclick="go('#/board/${S.pid}/team')"><span class="ms ms-sm">group</span>Equipo</div>
       ${adminLink}
@@ -86,7 +87,7 @@ function renderHeader() {
   const v = S.view;
   if (v==='board') {
     const p = S.projects.find(x => x.id === S.pid);
-    const subLabels = { tags:'Etiquetas', priorities:'Prioridades', team:'Equipo' };
+    const subLabels = { tags:'Etiquetas y flujos', priorities:'Prioridades', team:'Equipo' };
     const subLabel = subLabels[S.subview];
     bc.innerHTML = `<span class="cursor-pointer hover:text-primary transition-colors" onclick="go('#/')">Proyectos</span>
       <span class="ms ms-xs text-slate-700">chevron_right</span>
@@ -102,6 +103,9 @@ function renderHeader() {
   } else if (v==='team') {
     bc.innerHTML = `<span class="text-white font-semibold">Usuarios</span>`;
     act.innerHTML = '';
+  } else if (v==='globals') {
+    bc.innerHTML = `<span class="text-white font-semibold">Flujos y etiquetas globales</span>`;
+    act.innerHTML = '';
   }
 }
 
@@ -116,4 +120,5 @@ function renderContent() {
     else                               c.innerHTML = vBoard();
   }
   else if (S.view==='team') c.innerHTML = vTeam();
+  else if (S.view==='globals') c.innerHTML = vGlobals();
 }

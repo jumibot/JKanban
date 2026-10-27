@@ -46,11 +46,13 @@ async function execCascadeDelProject(e, projectId) {
 }
 
 // ── Generic confirm delete ────────
-const DEL_LABELS = {project:'proyecto',group:'grupo de tareas',task:'tarea',tag:'etiqueta',priority:'prioridad',user:'usuario'};
+const DEL_LABELS = {project:'proyecto',group:'grupo de tareas',task:'tarea',tag:'etiqueta',gtag:'etiqueta global',flow:'flujo',priority:'prioridad',user:'usuario'};
 
 function confirmDel(type, id) {
   const NAME_SOURCES = {
     tag:      () => S.tags.find(x => x.id === id)?.name,
+    gtag:     () => S.gtags.find(x => x.id === id)?.name,
+    flow:     () => flowById(id)?.name,
     priority: () => S.priorities.find(x => x.id === id)?.name,
     group:    () => S.groups.find(x => x.id === id)?.name,
     task:     () => S.tasks.find(x => x.id === id)?.title,
@@ -83,6 +85,7 @@ async function execDel(type, id) {
   const eps = {
     project:`/projects/${id}`, group:`/groups/${id}`,
     task:`/tasks/${id}`, tag:`/projects/${S.pid}/tags/${id}`,
+    gtag:`/tags/${id}`, flow:`/flows/${id}`,
     priority:`/projects/${S.pid}/priorities/${id}`,
     user:`/users/${id}`,
   };

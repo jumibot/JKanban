@@ -13,7 +13,8 @@
 | `DEST` — carpeta destino | *(obligatorio)* | Ruta absoluta. Si no se indica, **preguntar**. |
 | Rama | `develop` | `main` usa otra estructura (`app/`), ver [Ramas](#ramas). |
 | Puerto | `8000` | Cambiarlo si está ocupado. |
-| Contraseña del admin | *(preguntar)* | Mínimo 6 caracteres. No inventarla sin decirlo. |
+| Modo | **vacío** | `vacío`: sin datos, para uso real (es el de la SF). `demo`: con 3 usuarios y proyectos de ejemplo. |
+| Email, nombre y contraseña del admin | *(preguntar)* | Contraseña de al menos 6 caracteres. No inventarla sin decirlo. En modo demo, el email por defecto es `alice@example.com`. |
 
 Repositorio: `https://github.com/jumibot/JKanban.git`
 
@@ -55,56 +56,56 @@ python3 -m venv .venv
 > El `.venv` guarda rutas absolutas: si después se mueve o renombra la carpeta,
 > hay que borrarlo y repetir este paso.
 
-## 4. Base de datos y contraseña del administrador
+## 4. Base de datos y administrador
 
-La base de datos SQLite (`DEST/tasks.db`) se crea sola al arrancar y se llena
-con datos de demostración (3 usuarios y proyectos de ejemplo). El primer usuario,
-**`alice@example.com`**, es administrador, pero sus datos demo traen una contraseña
-ficticia, así que **nadie puede iniciar sesión hasta fijarla**. El registro público
-solo crea usuarios normales.
+La base de datos SQLite (`DEST/tasks.db`, o `SQLITE_PATH`) se crea sola la primera
+vez. Si está vacía y `JKANBAN_DEMO_DATA` no es `0`, se llena con datos de
+demostración. El registro público solo crea usuarios normales, así que **el
+administrador se crea con un comando**, que pasa por los casos de uso (sin SQL).
 
-Ejecutar **desde `DEST`**, porque el script importa el paquete `backend`. Sustituir `<PASSWORD>`:
+Ejecutar **desde `DEST`** y **antes del primer arranque**: así la base de datos se
+crea ya con el modo elegido. Sustituir `<EMAIL>`, `<NOMBRE>` y `<PASSWORD>`.
+
+**Modo vacío** (recomendado; el de la SF):
 
 ```powershell
 # Windows (PowerShell)
-@'
-import sys
-from backend.infrastructure.database import init_db
-from backend.interfaces.dependencies import get_user_use_cases
-init_db()
-uc = get_user_use_cases()
-admin = min((u for u in uc.get_all() if u.is_admin), key=lambda u: u.id)
-uc.update(admin.id, {"password": sys.argv[1]})
-print(f"Admin: {admin.email}")
-'@ | .\.venv\Scripts\python.exe - "<PASSWORD>"
+$env:JKANBAN_DEMO_DATA = "0"
+.\.venv\Scripts\python.exe -m backend.create_admin --email "<EMAIL>" --name "<NOMBRE>" --password "<PASSWORD>"
 ```
 
 ```bash
 # Linux / macOS
-.venv/bin/python - "<PASSWORD>" <<'EOF'
-import sys
-from backend.infrastructure.database import init_db
-from backend.interfaces.dependencies import get_user_use_cases
-init_db()
-uc = get_user_use_cases()
-admin = min((u for u in uc.get_all() if u.is_admin), key=lambda u: u.id)
-uc.update(admin.id, {"password": sys.argv[1]})
-print(f"Admin: {admin.email}")
-EOF
+JKANBAN_DEMO_DATA=0 .venv/bin/python -m backend.create_admin --email "<EMAIL>" --name "<NOMBRE>" --password "<PASSWORD>"
 ```
 
-✅ Imprime `Admin: alice@example.com`.
+✅ Imprime `Administrador creado: <email> (id 1)`.
 
-Usa los casos de uso de la app (hash PBKDF2), **no SQL directo**: es la regla
-del proyecto. Desde la web, el admin puede cambiar después su email y su nombre,
-y poner contraseña a Bob y a Carol.
+**Modo demo:** el administrador de los datos de demostración
+(`alice@example.com`) trae una contraseña ficticia; el comando le pone una real:
 
+```bash
+.venv/bin/python -m backend.create_admin --email alice@example.com --password "<PASSWORD>"
+```
+
+✅ Imprime `Usuario existente convertido en administrador y contraseña actualizada: alice@example.com (id 1)`.
+Desde la web, el admin puede poner contraseña a Bob y a Carol.
+
+Notas:
+- La contraseña también se puede pasar con la variable `JKANBAN_ADMIN_PASSWORD`
+  (no queda en el historial de la consola).
+- Repetir el comando es inocuo. Con un email existente, convierte ese usuario en
+  administrador (y, con contraseña, la cambia).
+- Una vez hay usuarios, los datos de demostración no se cargan nunca, sea cual sea
+  `JKANBAN_DEMO_DATA`.
 ## 5. Configuración opcional (variables de entorno)
 
 | Variable | Defecto | Cuándo cambiarla |
 |----------|---------|------------------|
 | `JWT_SECRET` | clave de desarrollo fija | **Siempre** si la app será accesible por otras personas. Generar con `python -c "import secrets; print(secrets.token_hex(32))"`. |
 | `SQLITE_PATH` | `DEST/tasks.db` | Para guardar la BD en otro sitio. Usar la misma variable en el paso 4 y al arrancar. |
+| `JKANBAN_DEMO_DATA` | `1` | `0` para que una BD nueva arranque vacía (paso 4). Solo influye mientras no hay usuarios. |
+| `JKANBAN_ADMIN_PASSWORD` | — | Contraseña para `create_admin`, en lugar de `--password`. |
 | `DB_ENGINE` | `sqlite` | Único motor implementado hoy. No tocar. |
 
 ## 6. Arrancar y verificar
@@ -124,7 +125,7 @@ Verificación (con el servidor en marcha):
 
 1. `GET http://127.0.0.1:8000/health` → `{"status":"ok"}`
 2. `POST http://127.0.0.1:8000/auth/login` con JSON
-   `{"email":"alice@example.com","password":"<PASSWORD>"}` → devuelve `access_token`.
+   `{"email":"<EMAIL>","password":"<PASSWORD>"}` → devuelve `access_token` y `"is_admin": true`.
 3. `GET http://127.0.0.1:8000/projects/` con `Authorization: Bearer <token>` → lista
    proyectos.
 
@@ -140,7 +141,7 @@ Resumir en pocas líneas:
 
 - Carpeta, rama y commit instalado (`git log --oneline -1`).
 - URL de la app (`http://127.0.0.1:<puerto>`) y de Swagger (`/docs`).
-- Usuario admin (`alice@example.com`). La contraseña solo si la generaste tú.
+- Modo (vacío o demo) y email del admin. La contraseña solo si la generaste tú.
 - Cómo arrancarla de nuevo (comando del paso 6).
 - Cualquier paso saltado o que fallara.
 
@@ -158,6 +159,8 @@ usuario de JKanban dedicado.
 |---------|-------|----------|
 | `ModuleNotFoundError: No module named 'backend'` | Script lanzado fuera de `DEST` | Ejecutar con `DEST` como directorio actual. |
 | Login → `Invalid email or password` con el admin | No se hizo el paso 4, o se hizo contra otra BD (`SQLITE_PATH` distinto) | Repetir el paso 4 con la misma configuración. |
+| Aparecen datos de ejemplo en modo vacío | Se arrancó el servidor antes del paso 4 sin `JKANBAN_DEMO_DATA=0` | Parar, borrar el fichero de la BD (solo si es nueva) y repetir el paso 4. |
+| `create_admin` → `falta la contraseña` | Ni `--password` ni `JKANBAN_ADMIN_PASSWORD` | Pasar una de las dos. |
 | Login → `422` | Cuerpo enviado como formulario | Enviar JSON (`Content-Type: application/json`). |
 | `.venv` falla tras mover la carpeta | Rutas absolutas en `.venv` | Borrar `.venv` y repetir el paso 3. |
 | `start-dev.ps1` bloqueado por la política de ejecución | Política de PowerShell | `powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1`, o usar uvicorn directamente. |
@@ -167,4 +170,4 @@ usuario de JKanban dedicado.
 | Rama | Backend | Frontend | Notas |
 |------|---------|----------|-------|
 | `develop` | `backend/` | `frontend/` | **Recomendada.** Este documento está escrito para ella. |
-| `main`, `release/*` | `app/` | `app/interfaces/static/` | Estructura antigua: el módulo es `app.main:app` y los imports del paso 4 cambian a `app.…`. |
+| `main`, `release/*` | `app/` | `app/interfaces/static/` | Estructura antigua: el módulo es `app.main:app` y no existe `create_admin`. |

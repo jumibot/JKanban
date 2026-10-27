@@ -16,6 +16,22 @@ pattern, which is specific to SQLite's limited ALTER TABLE support.
 """
 
 
+def _fk_off(conn) -> None:
+    """Disable FK enforcement before rebuilding a table.
+
+    PRAGMA foreign_keys is a no-op inside an open transaction, and any earlier
+    DML in migrate() opens one. Without the commit, DROP TABLE would
+    cascade-delete the rows of every child table.
+    """
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+
+def _fk_on(conn) -> None:
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
 def migrate(conn) -> None:
     """Apply all pending schema migrations to an open connection.
 
@@ -52,7 +68,7 @@ def migrate(conn) -> None:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
         ).fetchone() or [""])[0]
         if "CHECK(is_admin IN (0,1))" not in _u_sql:
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS users_new")
             conn.execute("""
                 CREATE TABLE users_new (
@@ -78,13 +94,13 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE users")
             conn.execute("ALTER TABLE users_new RENAME TO users")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
     # ── projects: fix stale FK leader_id → resources ──────────────────────────
     if "projects" in tables:
         proj_fk_tables = {r["table"] for r in conn.execute("PRAGMA foreign_key_list(projects)")}
         if "resources" in proj_fk_tables:
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS projects_new")
             conn.execute("""
                 CREATE TABLE projects_new (
@@ -112,7 +128,7 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE projects")
             conn.execute("ALTER TABLE projects_new RENAME TO projects")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
     # ── projects: owner_id + audit ────────────────────────────────────────────
@@ -164,7 +180,7 @@ def migrate(conn) -> None:
         if (group_fk_actions.get("project_id") != "CASCADE"
                 or not group_notnull.get("project_id", 0)
                 or "CHECK(LENGTH(color)" not in _g_sql):
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS groups_new")
             conn.execute("""
                 CREATE TABLE groups_new (
@@ -189,7 +205,7 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE groups")
             conn.execute("ALTER TABLE groups_new RENAME TO groups")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
         gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
         if "sort_order" not in gcols:
@@ -272,7 +288,7 @@ def migrate(conn) -> None:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
         ).fetchone() or [""])[0]
         if "CHECK(completed IN (0,1))" not in _t_sql:
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS tasks_new")
             conn.execute("""
                 CREATE TABLE tasks_new (
@@ -306,7 +322,7 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE tasks")
             conn.execute("ALTER TABLE tasks_new RENAME TO tasks")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
         tcols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
         if "sort_order" not in tcols:
@@ -333,7 +349,7 @@ def migrate(conn) -> None:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='todo_items'"
         ).fetchone() or [""])[0]
         if "CHECK(completed IN (0,1))" not in _tdi_sql:
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS todo_items_new")
             conn.execute("""
                 CREATE TABLE todo_items_new (
@@ -359,7 +375,7 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE todo_items")
             conn.execute("ALTER TABLE todo_items_new RENAME TO todo_items")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
     # ── tags: project_id + audit ──────────────────────────────────────────────
     if "tags" in tables:
@@ -394,20 +410,27 @@ def migrate(conn) -> None:
         ]:
             if col not in tagcols:
                 conn.execute(f"ALTER TABLE tags ADD COLUMN {col} {typedef}")
+        # Target: project_id nullable (NULL = global tag, since flows), flow_id,
+        # color CHECK. Before flows a NULL project_id meant an orphan tag: drop those.
         _tag_sql = (conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='tags'"
         ).fetchone() or [""])[0]
         _tag_notnull = {r["name"]: r["notnull"] for r in conn.execute("PRAGMA table_info(tags)")}
-        if not _tag_notnull.get("project_id", 0) or "CHECK(LENGTH(color)" not in _tag_sql:
-            conn.execute("DELETE FROM tags WHERE project_id IS NULL")
-            conn.execute("PRAGMA foreign_keys = OFF")
+        tagcols = {r[1] for r in conn.execute("PRAGMA table_info(tags)")}
+        if ("flow_id" not in tagcols or _tag_notnull.get("project_id", 0)
+                or "CHECK(LENGTH(color)" not in _tag_sql):
+            if "flow_id" not in tagcols:
+                conn.execute("DELETE FROM tags WHERE project_id IS NULL")
+            flow_expr = "flow_id" if "flow_id" in tagcols else "NULL"
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS tags_new")
             conn.execute("""
                 CREATE TABLE tags_new (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     name        TEXT NOT NULL,
-                    project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    project_id  INTEGER REFERENCES projects(id) ON DELETE CASCADE,
                     color       TEXT NOT NULL DEFAULT '#6B7280' CHECK(LENGTH(color)=7 AND SUBSTR(color,1,1)='#'),
+                    flow_id     INTEGER REFERENCES flows(id) ON DELETE SET NULL,
                     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
                     modified_at TEXT,
                     created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -415,17 +438,17 @@ def migrate(conn) -> None:
                     UNIQUE(name, project_id)
                 )
             """)
-            conn.execute("""
+            conn.execute(f"""
                 INSERT INTO tags_new
-                    (id, name, project_id, color, created_at, modified_at, created_by, modified_by)
-                SELECT id, name, project_id, color,
+                    (id, name, project_id, color, flow_id, created_at, modified_at, created_by, modified_by)
+                SELECT id, name, project_id, color, {flow_expr},
                        COALESCE(created_at, datetime('now')),
                        modified_at, created_by, modified_by
                 FROM tags
             """)
             conn.execute("DROP TABLE tags")
             conn.execute("ALTER TABLE tags_new RENAME TO tags")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
     # ── priorities: project_id + audit ───────────────────────────────────────
     if "priorities" in tables:
@@ -467,7 +490,7 @@ def migrate(conn) -> None:
         _pri_notnull = {r["name"]: r["notnull"] for r in conn.execute("PRAGMA table_info(priorities)")}
         if not _pri_notnull.get("project_id", 0) or "CHECK(LENGTH(color)" not in _pri_sql:
             conn.execute("DELETE FROM priorities WHERE project_id IS NULL")
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS priorities_new")
             conn.execute("""
                 CREATE TABLE priorities_new (
@@ -493,7 +516,7 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE priorities")
             conn.execute("ALTER TABLE priorities_new RENAME TO priorities")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
     # ── task_tags / group_tags: audit columns ────────────────────────────────
     if "task_tags" in tables:
@@ -501,6 +524,7 @@ def migrate(conn) -> None:
         for col, typedef in [
             ("created_at", "TEXT"),
             ("created_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
+            ("state_id",   "INTEGER REFERENCES flow_states(id) ON DELETE SET NULL"),
         ]:
             if col not in ttcols:
                 conn.execute(f"ALTER TABLE task_tags ADD COLUMN {col} {typedef}")
@@ -510,6 +534,7 @@ def migrate(conn) -> None:
         for col, typedef in [
             ("created_at", "TEXT"),
             ("created_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL"),
+            ("state_id",   "INTEGER REFERENCES flow_states(id) ON DELETE SET NULL"),
         ]:
             if col not in gtcols:
                 conn.execute(f"ALTER TABLE group_tags ADD COLUMN {col} {typedef}")
@@ -534,7 +559,7 @@ def migrate(conn) -> None:
         ).fetchone() or [""])[0]
         _proj_notnull = {r["name"]: r["notnull"] for r in conn.execute("PRAGMA table_info(projects)")}
         if not _proj_notnull.get("owner_id", 0) or "CHECK(LENGTH(color)" not in _proj_sql:
-            conn.execute("PRAGMA foreign_keys = OFF")
+            _fk_off(conn)
             conn.execute("DROP TABLE IF EXISTS projects_new")
             conn.execute("""
                 CREATE TABLE projects_new (
@@ -562,7 +587,7 @@ def migrate(conn) -> None:
             """)
             conn.execute("DROP TABLE projects")
             conn.execute("ALTER TABLE projects_new RENAME TO projects")
-            conn.execute("PRAGMA foreign_keys = ON")
+            _fk_on(conn)
 
     # ── legacy tables ─────────────────────────────────────────────────────────
     for legacy_table in ("task_resources",):

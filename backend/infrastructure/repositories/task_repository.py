@@ -150,14 +150,21 @@ class SqlTaskRepository(TaskRepository):
             return
         ids = [t.id for t in tasks]
         rows = conn.execute(
-            f"""SELECT tt.task_id, t.id, t.name, t.color
+            f"""SELECT tt.task_id, t.id, t.name, t.color, t.project_id, t.flow_id,
+                       f.name AS flow_name, tt.state_id, s.name AS state_name
                 FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
+                LEFT JOIN flows f ON f.id = t.flow_id
+                LEFT JOIN flow_states s ON s.id = tt.state_id
                 WHERE tt.task_id IN ({ph(len(ids))}) ORDER BY tt.task_id, t.id""",
             ids,
         ).fetchall()
         by_task: dict[int, list[Tag]] = {t.id: [] for t in tasks}
         for r in rows:
-            by_task[r["task_id"]].append(Tag(id=r["id"], name=r["name"], color=r["color"]))
+            by_task[r["task_id"]].append(Tag(
+                id=r["id"], name=r["name"], color=r["color"], project_id=r["project_id"],
+                flow_id=r["flow_id"], flow_name=r["flow_name"],
+                state_id=r["state_id"], state_name=r["state_name"],
+            ))
         for task in tasks:
             task.tags = by_task.get(task.id, [])
 
