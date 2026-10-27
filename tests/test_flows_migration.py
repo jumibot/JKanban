@@ -10,7 +10,7 @@ import sqlite3
 
 import pytest
 
-from backend.infrastructure.database import init_db
+from backend.infrastructure.persistence.factory import init_engine as init_db
 from backend.interfaces.dependencies import (
     get_flow_use_cases, get_group_use_cases, get_project_use_cases, get_tag_use_cases,
     get_task_use_cases, get_user_use_cases,

@@ -21,15 +21,14 @@ Esta guía explica cómo conectar un engine de base de datos nuevo (p.ej. Postgr
 ## Cómo funciona el sistema actual
 
 ```
-database.py  (alias público, 2 líneas)
-    └── persistence/factory.py   ← punto de despacho por DB_ENGINE
-            ├── sqlite/
-            │     ├── connection.py   ← wrapper de sqlite3
-            │     ├── adapter.py      ← insert_returning_id, idempotent_insert, map_integrity_error
-            │     ├── schema.py       ← CREATE TABLE
-            │     ├── migrations.py   ← migraciones ad-hoc
-            │     └── seed.py         ← datos demo
-            └── <nuevo-engine>/       ← lo que hay que crear
+persistence/factory.py   ← punto de despacho por DB_ENGINE
+├── sqlite/
+│     ├── connection.py   ← wrapper de sqlite3
+│     ├── adapter.py      ← insert_returning_id, idempotent_insert, map_integrity_error
+│     ├── schema.py       ← CREATE TABLE
+│     ├── migrations.py   ← migraciones ad-hoc
+│     └── seed.py         ← datos demo
+└── <nuevo-engine>/       ← lo que hay que crear
 ```
 
 Todos los repositorios importan **solo desde `persistence.factory`**: `get_connection()` y los helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`; `reset_tables` lo usan solo los tests). El factory lee la variable de entorno `DB_ENGINE` y delega en los módulos `connection.py` / `adapter.py` del engine activo. **Añadir un engine es completamente aditivo**: no se modifica ningún repositorio ni ninguna capa superior.

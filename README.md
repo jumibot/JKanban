@@ -155,7 +155,6 @@ El backend sigue una **arquitectura por capas** (domain → application → infr
 | `persistence/factory.py` | Elige el motor según `DB_ENGINE` y expone conexión y helpers de dialecto |
 | `persistence/sqlite/` | Conexión, esquema, migraciones y datos demo de SQLite |
 | `persistence/common/` | Utilidades independientes del motor (fechas, placeholders) |
-| `database.py` | Alias de compatibilidad: re-exporta `get_connection` e `init_db` |
 | `jwt_handler.py` | Generación y validación de tokens JWT |
 | `repositories/` | `Sql*Repository`: implementación SQL portable de cada repositorio del dominio |
 

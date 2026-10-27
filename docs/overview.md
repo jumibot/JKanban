@@ -15,7 +15,7 @@
 
 JKanban es una aplicación web de gestión de tareas tipo Kanban multiusuario. Organiza el trabajo en **proyectos → grupos (columnas) → tareas**, con soporte para subtareas, etiquetas, prioridades, asignación de responsables y roles por proyecto.
 
-**Versión:** 7.0.0 · **Idioma UI:** Español · **Tipo:** SPA + REST API
+**Versión:** 1.0.0 ([CHANGELOG](../CHANGELOG.md)) · **Idioma UI:** Español · **Tipo:** SPA + REST API
 
 ---
 
@@ -36,7 +36,7 @@ JKanban es una aplicación web de gestión de tareas tipo Kanban multiusuario. O
 
 ## Estructura de carpetas
 
-Estructura de la rama `develop` (en `main` / `release/*` el backend está en `app/`).
+Estructura común a `develop`, `main` y las versiones etiquetadas desde `v1.0.0` (en `v0.0.0` el backend estaba en `app/`).
 
 ```
 JKanban/

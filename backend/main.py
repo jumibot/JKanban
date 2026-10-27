@@ -2,13 +2,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from backend.infrastructure.database import init_db
+from backend.infrastructure.persistence.factory import init_engine
 from backend.interfaces.routers import admin, auth, flows, groups, priorities, projects, tags, tasks, todos
 from backend.interfaces.routers import users
 
-app = FastAPI(title="Tasks API", version="7.0.0")
+app = FastAPI(title="JKanban API", version="1.0.0")
 
-init_db()
+init_engine()
 
 app.include_router(admin.router)
 app.include_router(auth.router)

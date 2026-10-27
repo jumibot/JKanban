@@ -96,7 +96,6 @@ class ProjectUseCases:
 
 | Archivo / carpeta | Responsabilidad |
 |-------------------|----------------|
-| `database.py` | Alias público de dos líneas: re-exporta `get_connection` e `init_db` desde el factory. Los imports existentes no necesitan cambiar. |
 | `persistence/factory.py` | Despacha por engine (`DB_ENGINE`): da la conexión y los helpers de dialecto (`insert_returning_id`, `idempotent_insert`, `map_integrity_error`, `reset_tables`) del engine activo, y orquesta schema + migraciones + seed. Único punto de import para el resto del código. Añadir un engine solo requiere extender este archivo (y crear su carpeta). |
 | `persistence/sqlite/` | Implementación SQLite completa: `connection.py` (wrapper con traducción `%s`→`?`; cierra la conexión al salir del `with`), `schema.py` (DDL), `migrations.py` (migraciones ad-hoc no destructivas), `seed.py` (datos demo), `adapter.py` (helpers de dialecto). |
 | `persistence/common/` | Utilidades agnósticas de engine: `utcnow()`, `ph(n)` para placeholders portables, `row_opt()` / `row_dt()` / `to_datetime()` para leer filas de cualquier driver. |
@@ -182,7 +181,6 @@ La arquitectura de persistencia está diseñada para que añadir un engine nuevo
 
 ```
 infrastructure/
-├── database.py                  ← alias público (2 líneas); no tocar
 ├── persistence/
 │   ├── factory.py               ← dispatch por DB_ENGINE; aquí se añade el nuevo engine
 │   ├── common/
@@ -304,7 +302,6 @@ DB_ENGINE=postgres DATABASE_URL=postgresql://user:pass@host:5432/jkanban uvicorn
 | `application/` | **Ninguno** |
 | `interfaces/` | **Ninguno** |
 | `infrastructure/repositories/` | **Ninguno** — ya usan el factory |
-| `infrastructure/database.py` | **Ninguno** — es un alias |
 | `infrastructure/persistence/factory.py` | Añadir `postgres` a `_ENGINE_PACKAGES` y una rama en `init_engine` |
 | `infrastructure/persistence/postgres/` | Crear: `connection.py`, `schema.py`, `migrations.py`, `seed.py`, `adapter.py` |
 | `requirements.txt` | Añadir `psycopg2-binary` |

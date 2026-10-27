@@ -11,7 +11,7 @@
 | Dato | Valor por defecto | Notas |
 |------|-------------------|-------|
 | `DEST` — carpeta destino | *(obligatorio)* | Ruta absoluta. Si no se indica, **preguntar**. |
-| Rama | `develop` | `main` usa otra estructura (`app/`), ver [Ramas](#ramas). |
+| Versión | la última etiquetada (hoy `v1.0.0`) | Ver [`CHANGELOG.md`](../CHANGELOG.md) y [Versiones y ramas](#versiones-y-ramas). `develop` solo para desarrollar JKanban. |
 | Puerto | `8000` | Cambiarlo si está ocupado. |
 | Modo | **vacío** | `vacío`: sin datos, para uso real (es el de la SF). `demo`: con 3 usuarios y proyectos de ejemplo. |
 | Email, nombre y contraseña del admin | *(preguntar)* | Contraseña de al menos 6 caracteres. No inventarla sin decirlo. En modo demo, el email por defecto es `alice@example.com`. |
@@ -24,14 +24,16 @@ Repositorio: `https://github.com/jumibot/JKanban.git`
 |-----------|--------------|----------|
 | Git | `git --version` | Pedir al usuario que lo instale. |
 | Python **3.13** (mínimo 3.10) | `python --version` (Windows: también `py -3 --version`) | Pedir al usuario que lo instale. No instalar Python por tu cuenta. |
-| `DEST` no existe o está vacía | `Test-Path DEST` / `ls -A DEST` | **No sobrescribir.** Si ya contiene un clon de JKanban, ofrecer actualizarlo (`git pull`) en vez de reinstalar. |
+| `DEST` no existe o está vacía | `Test-Path DEST` / `ls -A DEST` | **No sobrescribir.** Si ya contiene un clon de JKanban, ofrecer actualizarlo en vez de reinstalar (ver [Actualizar](#actualizar)). |
 | Puerto libre | `Get-NetTCPConnection -LocalPort 8000` / `lsof -i :8000` | Elegir otro puerto. |
 
 ## 2. Clonar
 
 ```bash
-git clone --branch develop https://github.com/jumibot/JKanban.git "DEST"
+git clone --branch v1.0.0 https://github.com/jumibot/JKanban.git "DEST"
 ```
+
+Git avisa de *detached HEAD*: es lo normal al clonar una versión etiquetada.
 
 ✅ Existen `DEST/backend/main.py` y `DEST/frontend/index.html`.
 
@@ -125,21 +127,21 @@ Verificación (con el servidor en marcha):
 
 1. `GET http://127.0.0.1:8000/health` → `{"status":"ok"}`
 2. `POST http://127.0.0.1:8000/auth/login` con JSON
-   `{"email":"<EMAIL>","password":"<PASSWORD>"}` → devuelve `access_token` y `"is_admin": true`.
+   `{"email":"<EMAIL>","password":"<PASSWORD>"}` → devuelve `access_token` y `user` con `"is_admin": true`.
 3. `GET http://127.0.0.1:8000/projects/` con `Authorization: Bearer <token>` → lista
    proyectos.
 
 ✅ Si las tres funcionan, la instalación está completa. Si solo has arrancado el
 servidor para verificar, **detenlo** al acabar, salvo que el usuario quiera dejarlo en marcha.
 
-Ejecutar los tests es opcional (unos 80 s): `.venv/…/python -m pytest -q`. Usan una BD
+Ejecutar los tests es opcional (unos 3 minutos): `.venv/…/python -m pytest -q`. Usan una BD
 temporal y no tocan `tasks.db`.
 
 ## 7. Informe final al usuario
 
 Resumir en pocas líneas:
 
-- Carpeta, rama y commit instalado (`git log --oneline -1`).
+- Carpeta, versión y commit instalados (`git describe --tags` y `git log --oneline -1`).
 - URL de la app (`http://127.0.0.1:<puerto>`) y de Swagger (`/docs`).
 - Modo (vacío o demo) y email del admin. La contraseña solo si la generaste tú.
 - Cómo arrancarla de nuevo (comando del paso 6).
@@ -165,9 +167,24 @@ usuario de JKanban dedicado.
 | `.venv` falla tras mover la carpeta | Rutas absolutas en `.venv` | Borrar `.venv` y repetir el paso 3. |
 | `start-dev.ps1` bloqueado por la política de ejecución | Política de PowerShell | `powershell -ExecutionPolicy Bypass -File scripts\start-dev.ps1`, o usar uvicorn directamente. |
 
-## Ramas
+## Actualizar
 
-| Rama | Backend | Frontend | Notas |
-|------|---------|----------|-------|
-| `develop` | `backend/` | `frontend/` | **Recomendada.** Este documento está escrito para ella. |
-| `main`, `release/*` | `app/` | `app/interfaces/static/` | Estructura antigua: el módulo es `app.main:app` y no existe `create_admin`. |
+Con el servidor parado, desde `DEST`:
+
+```bash
+git fetch --tags
+git checkout vX.Y.Z          # la versión nueva, ver CHANGELOG.md
+.venv/…/python -m pip install -r backend/requirements.txt
+```
+
+La base de datos se migra sola al arrancar (migraciones no destructivas). Aun así,
+copiar antes el fichero de la BD. Leer en `CHANGELOG.md` si la versión cambia algo
+incompatible (sube el primer número).
+
+## Versiones y ramas
+
+| Referencia | Para qué |
+|------------|----------|
+| Tag `vX.Y.Z` (desde `v1.0.0`) | **Instalaciones.** Versiones publicadas; también en `main`. |
+| `develop` | Desarrollo de JKanban. Puede tener cambios a medias. |
+| Tag `v0.0.0` | Estructura antigua (`app/`, sin `create_admin`). No usar. |

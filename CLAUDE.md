@@ -1,5 +1,14 @@
 # JKanban — Guía de sesión
 
+## Software Factory
+
+Este proyecto se desarrolla con la Software Factory (SF), que llega como el plugin `sf` de Claude Code, instalado desde el catálogo publicado en GitHub.
+
+- Método: la skill `sf:metodologia`, que dice qué parte del método leer en cada momento. JKanban es anterior a la SF: su documentación aún no sigue la estructura común (sección 6 del método).
+- Decisiones: en `docs/decisiones.md`, con su porqué (sección 6 del método). Aún no existe.
+- Estado en la SF: `docs/sf.json` (fase, devslice en curso, fases hechas, pendientes). Actualizarlo al cambiar de fase o de devslice. Lo muestra el plugin `sf` de la SF (línea de estado y `/sf`), instalado desde el catálogo publicado en GitHub.
+- Mejora continua: las mejoras de la SF que se detecten aquí se registran en el proyecto **SoftwareFactory** del kanban (tarea «Mejorar la Software Factory»), indicando que el origen es JKanban y el contexto. Pedir aprobación antes de aplicarlas a la SF.
+
 ## Documentación técnica
 
 El punto de entrada a toda la documentación está en [`docs/overview.md`](docs/overview.md).
@@ -9,14 +18,13 @@ Cárgala cuando necesites contexto sobre arquitectura, API, modelo de datos, per
 
 ## Ramas y estructura de carpetas
 
-> La estructura del backend **cambia según la rama**. Verificar siempre con `git branch`.
+| Rama | Uso |
+|------|-----|
+| `develop` | Rama habitual de trabajo. Las features salen en `feature/*` y vuelven por PR. |
+| `release/vX.Y.Z` | Se abre desde `develop` para preparar una versión; PR a `main`. |
+| `main` | Solo versiones publicadas; cada una con su tag `vX.Y.Z` (ver `CHANGELOG.md`). |
 
-| Rama | Backend en | Frontend en |
-|------|-----------|-------------|
-| `develop` | `backend/` | `frontend/` (21 módulos JS) |
-| `main` / `release/*` | `app/` | `app/interfaces/static/` |
-
-**Rama habitual de trabajo: `develop`**
+Backend en `backend/`, frontend en `frontend/` (21 módulos JS). Solo el tag antiguo `v0.0.0` usa `app/`.
 
 ---
 

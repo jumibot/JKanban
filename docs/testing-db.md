@@ -26,17 +26,17 @@ El fichero persiste durante toda la sesión (`delete=False`) y se reutiliza por 
 
 `db_settings.sqlite_path` lee `os.environ` en cada acceso (lazy-read). Establecer la variable de entorno **antes de cualquier import de la app** garantiza que toda llamada a `get_connection()` abra el fichero temporal, independientemente del orden de importación de módulos.
 
-Asignar `db_module.DB_PATH = ...` era el mecanismo antiguo y dejó de funcionar al refactorizar `database.py` como alias del factory.
+Asignar `db_module.DB_PATH = ...` era el mecanismo antiguo y dejó de funcionar al pasar la conexión al factory (el antiguo `database.py` se retiró en la v1.0.0).
 
 ### 3. El import de la app ocurre después
 
 ```python
 os.environ["SQLITE_PATH"] = _tmp_db.name   # 1. fijar ruta
 
-from backend.main import app               # 2. importar → init_db() usa el temp file
+from backend.main import app               # 2. importar → init_engine() usa el temp file
 ```
 
-`backend.main` llama `init_db()` al importarse. Si la variable de entorno no está fijada antes, `init_db()` inicializaría `tasks.db`.
+`backend.main` llama `init_engine()` al importarse. Si la variable de entorno no está fijada antes, `init_engine()` inicializaría `tasks.db`.
 
 ---
 
@@ -48,7 +48,7 @@ pytest arranca
   ├── conftest.py ejecuta (scope global)
   │     ├── crea /tmp/tmpXXX.db
   │     ├── os.environ["SQLITE_PATH"] = "/tmp/tmpXXX.db"
-  │     └── importa backend.main → init_db() → schema + migrations + seed en tmpXXX.db
+  │     └── importa backend.main → init_engine() → schema + migrations + seed en tmpXXX.db
   │
   ├── por cada test:
   │     ├── clean_db (autouse) — trunca todas las tablas en tmpXXX.db

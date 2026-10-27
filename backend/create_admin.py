@@ -19,7 +19,7 @@ import getpass
 import os
 import sys
 
-from backend.infrastructure.database import init_db
+from backend.infrastructure.persistence.factory import init_engine
 from backend.interfaces.dependencies import get_user_use_cases
 
 MIN_PASSWORD = 6  # mismo mínimo que UserCreate
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Error: email no válido.", file=sys.stderr)
         return 2
 
-    init_db()
+    init_engine()
     users = get_user_use_cases()
     existing = next((u for u in users.get_all() if u.email == email), None)
 

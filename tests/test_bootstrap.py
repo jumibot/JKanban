@@ -7,7 +7,7 @@ import pytest
 
 from backend.config import db_settings
 from backend.create_admin import main as create_admin
-from backend.infrastructure.database import init_db
+from backend.infrastructure.persistence.factory import init_engine as init_db
 from backend.interfaces.dependencies import get_group_use_cases, get_user_use_cases
 
 
