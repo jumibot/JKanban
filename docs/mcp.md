@@ -142,7 +142,10 @@ Lo puede hacer cualquier miembro del proyecto, no solo el administrador.
 - La descripción de un plan no se puede vaciar (la API de grupos ignora `null`).
 ## Instalación
 
-Requiere JKanban instalado y **arrancado** ([installation.md](installation.md)).
+Está en la [guía de instalación](guias/instalacion.md#8-opcional-servidor-mcp), paso 8, y su
+actualización en la [guía de actualización](guias/actualizacion.md). Resumen:
+
+Requiere JKanban instalado y **arrancado**.
 
 1. **Entorno propio.** El SDK de MCP 2.x necesita versiones de Starlette y Pydantic
    incompatibles con las que fija el backend, así que no se instala en `.venv`:

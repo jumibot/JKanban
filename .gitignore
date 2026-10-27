@@ -25,3 +25,6 @@ Thumbs.db
 
 # Entorno del servidor MCP (jkanban_mcp/requirements.txt)
 .venv-mcp/
+
+# Software Factory: estado local (la identidad, .sf/proyecto.json, sí se versiona)
+.sf/estado.json

@@ -1,8 +1,13 @@
-# Instalación de JKanban
+# Guía de instalación de JKanban desde cero
 
 > Procedimiento pensado para que **Claude Code** lo ejecute cuando se le pida
 > «instala JKanban en `<carpeta>`». También sirve para una persona: cada paso
 > trae el comando y cómo comprobar que ha ido bien.
+>
+> Para pasar una instalación existente a una versión nueva, usar la
+> [guía de actualización](actualizacion.md).
+
+**Versión:** JKanban 1.0.0, 27 de octubre de 2026.
 
 ---
 
@@ -11,7 +16,7 @@
 | Dato | Valor por defecto | Notas |
 |------|-------------------|-------|
 | `DEST` — carpeta destino | *(obligatorio)* | Ruta absoluta. Si no se indica, **preguntar**. |
-| Versión | la última etiquetada (hoy `v1.0.0`) | Ver [`CHANGELOG.md`](../CHANGELOG.md) y [Versiones y ramas](#versiones-y-ramas). `develop` solo para desarrollar JKanban. |
+| Versión | la última etiquetada (hoy `v1.0.0`) | Ver [`CHANGELOG.md`](../../CHANGELOG.md) y [Versiones y ramas](#versiones-y-ramas). `develop` solo para desarrollar JKanban. |
 | Puerto | `8000` | Cambiarlo si está ocupado. |
 | Modo | **vacío** | `vacío`: sin datos, para uso real (es el de la SF). `demo`: con 3 usuarios y proyectos de ejemplo. |
 | Email, nombre y contraseña del admin | *(preguntar)* | Contraseña de al menos 6 caracteres. No inventarla sin decirlo. En modo demo, el email por defecto es `alice@example.com`. |
@@ -24,7 +29,7 @@ Repositorio: `https://github.com/jumibot/JKanban.git`
 |-----------|--------------|----------|
 | Git | `git --version` | Pedir al usuario que lo instale. |
 | Python **3.13** (mínimo 3.10) | `python --version` (Windows: también `py -3 --version`) | Pedir al usuario que lo instale. No instalar Python por tu cuenta. |
-| `DEST` no existe o está vacía | `Test-Path DEST` / `ls -A DEST` | **No sobrescribir.** Si ya contiene un clon de JKanban, ofrecer actualizarlo en vez de reinstalar (ver [Actualizar](#actualizar)). |
+| `DEST` no existe o está vacía | `Test-Path DEST` / `ls -A DEST` | **No sobrescribir.** Si ya contiene un clon de JKanban, ofrecer actualizarlo en vez de reinstalar ([guía de actualización](actualizacion.md)). |
 | Puerto libre | `Get-NetTCPConnection -LocalPort 8000` / `lsof -i :8000` | Elegir otro puerto. |
 
 ## 2. Clonar
@@ -145,13 +150,64 @@ Resumir en pocas líneas:
 - URL de la app (`http://127.0.0.1:<puerto>`) y de Swagger (`/docs`).
 - Modo (vacío o demo) y email del admin. La contraseña solo si la generaste tú.
 - Cómo arrancarla de nuevo (comando del paso 6).
+- Si se instaló el MCP: en qué proyecto se registró y con qué usuario.
 - Cualquier paso saltado o que fallara.
 
 ## 8. Opcional: servidor MCP
 
-Solo si se pide (por ejemplo, para conectar el proyecto SF): seguir
-[mcp.md](mcp.md#instalación). Usa un entorno aparte (`.venv-mcp`) y necesita un
-usuario de JKanban dedicado.
+Solo si se pide, por ejemplo para que Claude Code use el tablero desde el proyecto
+SoftwareFactory. Requiere JKanban instalado y **arrancado** (pasos 1-6). Qué hace el
+MCP y sus 44 herramientas: [mcp.md](../mcp.md).
+
+**8.1. Entorno propio.** El SDK de MCP 2.x necesita versiones de Starlette y Pydantic
+incompatibles con las que fija el backend, así que va en `.venv-mcp`, no en `.venv`.
+Desde `DEST`:
+
+```powershell
+# Windows (PowerShell)
+python -m venv .venv-mcp
+.\.venv-mcp\Scripts\python.exe -m pip install -r jkanban_mcp\requirements.txt
+```
+
+```bash
+# Linux / macOS
+python3 -m venv .venv-mcp
+.venv-mcp/bin/python -m pip install -r jkanban_mcp/requirements.txt
+```
+
+✅ `.venv-mcp/…/python -c "import mcp"` termina sin error.
+
+**8.2. Usuario de JKanban para el MCP.** Para la SF es **el administrador** creado en
+el paso 4: JKanban arranca vacío y la SF lo configura todo. Para otros usos basta un
+usuario normal (desde la web o `POST /users/`). El MCP solo ve los proyectos que ese
+usuario posee o de los que es miembro; para que una persona los vea en el tablero,
+hay que añadirla como miembro.
+
+**8.3. Registrar el MCP en el proyecto que lo usa.** Desde la carpeta de ese proyecto
+(por ejemplo, la de SoftwareFactory), sustituyendo `<DEST>`, `<EMAIL>` y `<PASSWORD>`:
+
+```powershell
+claude mcp add jkanban --scope local `
+  -e PYTHONPATH=<DEST> `
+  -e JKANBAN_URL=http://127.0.0.1:8000 `
+  -e JKANBAN_EMAIL=<EMAIL> `
+  -e JKANBAN_PASSWORD=<PASSWORD> `
+  -- <DEST>\.venv-mcp\Scripts\python.exe -m jkanban_mcp
+```
+
+`PYTHONPATH` hace falta porque Claude Code lanza el servidor desde la carpeta del
+proyecto, no desde la de JKanban. `--scope local` no se versiona, así que la
+contraseña no llega al repositorio. Con `--scope project` (`.mcp.json` compartido),
+poner `"JKANBAN_PASSWORD": "${JKANBAN_PASSWORD}"` y definir la variable en el entorno.
+
+| Variable | Defecto | Uso |
+|----------|---------|-----|
+| `JKANBAN_URL` | `http://127.0.0.1:8000` | URL de la API |
+| `JKANBAN_EMAIL` | *(obligatoria)* | Usuario del MCP |
+| `JKANBAN_PASSWORD` | *(obligatoria)* | Su contraseña |
+
+**8.4. Comprobar.** Reiniciar Claude Code en ese proyecto. `/mcp` debe mostrar
+`jkanban` conectado, con 44 herramientas.
 
 ---
 
@@ -169,17 +225,7 @@ usuario de JKanban dedicado.
 
 ## Actualizar
 
-Con el servidor parado, desde `DEST`:
-
-```bash
-git fetch --tags
-git checkout vX.Y.Z          # la versión nueva, ver CHANGELOG.md
-.venv/…/python -m pip install -r backend/requirements.txt
-```
-
-La base de datos se migra sola al arrancar (migraciones no destructivas). Aun así,
-copiar antes el fichero de la BD. Leer en `CHANGELOG.md` si la versión cambia algo
-incompatible (sube el primer número).
+En su propia guía: [guía de actualización](actualizacion.md).
 
 ## Versiones y ramas
 

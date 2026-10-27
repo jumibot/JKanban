@@ -312,7 +312,7 @@ La API completa está disponible en modo interactivo en `http://127.0.0.1:8000/d
 
 ## Arranque en desarrollo
 
-> Para una instalación nueva desde cero, incluida la contraseña del administrador, sigue [`docs/installation.md`](docs/installation.md).
+> Para una instalación nueva desde cero, incluida la contraseña del administrador, sigue [`docs/guias/instalacion.md`](docs/guias/instalacion.md). Para pasar a una versión nueva, [`docs/guias/actualizacion.md`](docs/guias/actualizacion.md).
 
 ```powershell
 # Instalar dependencias
