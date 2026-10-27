@@ -1,6 +1,7 @@
 # Flujos y etiquetas globales — especificación
 
-> Estado: **pendiente de implementar**. Acordada con el propietario el 2026-10-27.
+> Estado: **backend implementado** (paso 1); MCP (paso 2) y web (paso 3) pendientes.
+> Acordada con el propietario el 2026-10-27. Referencia de la API: [api.md](api.md#flows).
 > Origen: la Software Factory (SF) necesita estados con transiciones para su
 > trabajo (metodología, sección 4). En lugar de fijar en JKanban los estados del
 > método, JKanban ofrece flujos genéricos que cada cual define.

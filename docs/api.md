@@ -11,7 +11,8 @@
 - [Groups](#groups) — `GET|POST|PATCH|DELETE /groups/` · reorder
 - [Tasks](#tasks) — `GET|POST|PATCH|DELETE /tasks/` · tag assignment
 - [Todos](#todos-subtareas) — `/tasks/{id}/todos`
-- [Tags](#tags-project-scoped) — `/projects/{id}/tags/` · group/task assignment
+- [Tags](#tags) — `/tags/` (globales) · `/projects/{id}/tags/` · asignación, estado e historial
+- [Flows](#flows) — `/flows/` (globales) · `/projects/{id}/flows/` · estados y transiciones
 - [Priorities](#priorities-project-scoped) — `/projects/{id}/priorities/`
 - [Admin](#admin) — deletion preview · cascade delete usuario
 
@@ -41,8 +42,22 @@
 
 ### TagResponse
 ```json
-{ "id": 3, "name": "Backend", "color": "#3B82F6", "project_id": 7 }
+{ "id": 3, "name": "Devslice", "color": "#3B82F6", "project_id": null,
+  "flow": { "id": 1, "name": "Devslice" },
+  "state": { "id": 4, "name": "En desarrollo" } }
 ```
+`project_id` nulo = etiqueta global. `flow` es nulo si la etiqueta no tiene flujo.
+`state` solo viene relleno en las etiquetas de una tarea o grupo (`TaskResponse.tags`,
+`GroupResponse.tags`) cuya etiqueta tiene flujo; en el resto es nulo.
+
+### FlowResponse
+```json
+{ "id": 1, "name": "Devslice", "project_id": null, "initial_state_id": 1,
+  "states": [ { "id": 1, "name": "Planificada", "color": "#6B7280", "sort_order": 0, "is_initial": true } ],
+  "transitions": [ { "from_state_id": 1, "to_state_id": 2 } ],
+  "created_at": "…", "modified_at": null }
+```
+`project_id` nulo = flujo global. Estados en `sort_order`.
 
 ### PriorityResponse
 ```json
@@ -533,24 +548,9 @@ Todos los campos del cuerpo son opcionales. Para mover una tarea entre columnas 
 
 ---
 
-### `POST /tasks/{task_id}/tags/{tag_id}` — member+
-Asigna una etiqueta a una tarea. La etiqueta debe pertenecer al mismo proyecto que la tarea.
-
-**Response 204**
-
-**Errores:**
-| Código | Condición |
-|--------|-----------|
-| 404 | Tarea o etiqueta no encontradas |
-| 422 | La etiqueta no pertenece al proyecto de la tarea |
-
----
-
-### `DELETE /tasks/{task_id}/tags/{tag_id}` — member+
-
-**Response 204**
-
-**Errores:** 404 si tarea no encontrada.
+### `POST|DELETE /tasks/{task_id}/tags/{tag_id}` · `PATCH .../state` · `GET .../history`
+Asignar y desasignar etiquetas, cambiar su estado y ver el registro: ver
+[Asignación, estado e historial](#asignación-estado-e-historial).
 
 ---
 
@@ -602,19 +602,28 @@ Asigna una etiqueta a una tarea. La etiqueta debe pertenecer al mismo proyecto q
 
 ---
 
-## Tags *(project-scoped)*
+## Tags
+
+Una etiqueta es **global** (`project_id` nulo; la gestiona solo el administrador)
+o **de un proyecto** (la gestionan su propietario o líder). Puede usar un
+[flujo](#flows): una global, solo flujos globales; una de proyecto, globales o de
+su proyecto.
+
+**Nombres** (sin distinguir mayúsculas): una global no puede repetir el nombre de
+ninguna otra etiqueta; una de proyecto, ni el de una global ni el de otra de su
+proyecto (409).
 
 ### `GET /projects/{project_id}/tags/` — member+
 
-**Response 200:** `list[TagResponse]`
+**Response 200:** `list[TagResponse]` — primero las globales y después las del proyecto.
 
 ---
 
 ### `GET /projects/{project_id}/tags/{tag_id}` — member+
 
-**Response 200:** `TagResponse`
+**Response 200:** `TagResponse` (del proyecto o global).
 
-**Errores:** 404 si no existe o no pertenece al proyecto.
+**Errores:** 404 si no existe o es de otro proyecto.
 
 ---
 
@@ -623,8 +632,9 @@ Asigna una etiqueta a una tarea. La etiqueta debe pertenecer al mismo proyecto q
 **Request body:**
 | Campo | Tipo | Req | Notas |
 |-------|------|-----|-------|
-| `name` | string | ✓ | 1–50, único en el proyecto |
+| `name` | string | ✓ | 1–50; ver reglas de nombres |
 | `color` | string | — | hex `#RRGGBB`; default `"#6B7280"` |
+| `flow_id` | int | — | flujo global o del proyecto |
 
 **Response 201:** `TagResponse`
 
@@ -632,46 +642,127 @@ Asigna una etiqueta a una tarea. La etiqueta debe pertenecer al mismo proyecto q
 | Código | Condición |
 |--------|-----------|
 | 403 | No es owner ni leader |
-| 409 | Nombre ya en uso en el proyecto |
+| 404 | `flow_id` no existe |
+| 409 | Nombre ya en uso |
+| 422 | Flujo de otro proyecto (`FlowNotInScope`) |
 
 ---
 
 ### `PATCH /projects/{project_id}/tags/{tag_id}` — owner o leader
 
-**Request body** (todos opcionales): `name`, `color`
+**Request body** (todos opcionales): `name`, `color`, `flow_id` (`null` quita el flujo).
 
 **Response 200:** `TagResponse`
 
-**Errores:** 403, 404, 409 (nombre duplicado), 422 (sin campos).
+**Errores:** 403; 404 (no existe, es de otro proyecto o es global); 409 (nombre
+duplicado, o cambiar/quitar el flujo de una etiqueta asignada: `FlowInUse`); 422
+(sin campos, o flujo fuera de ámbito).
 
 ---
 
 ### `DELETE /projects/{project_id}/tags/{tag_id}` — owner o leader
 
-**Response 204**
+**Response 204.** Se quita de tareas y grupos y se borra su registro de estados.
 
-**Errores:** 403, 404.
+**Errores:** 403; 404 (no existe, es de otro proyecto o es global).
 
 ---
 
-### `POST /groups/{group_id}/tags/{tag_id}` — member+
-Asigna etiqueta a un grupo.
+### `GET /tags/` · `GET /tags/{tag_id}` — autenticado
 
-**Response 204**
+Etiquetas globales. **Errores:** 404 si no existe o es de un proyecto.
+
+### `POST /tags/` · `PATCH /tags/{tag_id}` · `DELETE /tags/{tag_id}` — admin
+
+Mismo cuerpo, respuestas y errores que las rutas de proyecto, para etiquetas
+globales (solo flujos globales). 403 si no es administrador.
+
+---
+
+### Asignación, estado e historial
+
+Las mismas rutas para tareas (`/tasks/{task_id}/…`) y grupos (`/groups/{group_id}/…`).
+Permiso: acceso al proyecto del elemento (member+). Una etiqueta de proyecto solo
+se asigna en su proyecto; una global, en cualquiera.
+
+| Ruta | Qué hace |
+|------|----------|
+| `POST /tasks/{id}/tags/{tag_id}` | Asigna (idempotente). Con flujo: el elemento entra en el **estado inicial** y se registra. **204** |
+| `DELETE /tasks/{id}/tags/{tag_id}` | Desasigna (siempre permitido, idempotente). Con flujo: se registra la salida (`to_state` nulo). **204** |
+| `PATCH /tasks/{id}/tags/{tag_id}/state` | Body `{"state_id": n, "note": "…"}` (nota opcional, ≤1000). Solo a un destino con transición desde el estado actual. **200** `TagResponse` con el nuevo `state` |
+| `GET /tasks/{id}/tags/{tag_id}/history` | **200** `list[FlowStateChangeResponse]` en orden; se conserva tras desasignar |
+
+```json
+{ "id": 2, "tag_id": 3, "task_id": 10, "group_id": null,
+  "from_state": "Planificada", "to_state": "En desarrollo", "note": "arranco",
+  "changed_by": 5, "changed_at": "2026-10-27T10:00:00" }
+```
+Los estados se guardan **por nombre**: el registro sigue siendo legible aunque luego
+se renombren o borren.
 
 **Errores:**
 | Código | Condición |
 |--------|-----------|
-| 404 | Grupo o etiqueta no encontrados |
-| 422 | La etiqueta no pertenece al mismo proyecto |
+| 403 | Sin acceso al proyecto del elemento |
+| 404 | Tarea, grupo o etiqueta no existen; etiqueta no asignada (en `state`); estado de otro flujo |
+| 409 | `InvalidFlowTransition`: no hay transición (el mensaje lista los destinos válidos); también al pedir el estado actual |
+| 422 | Etiqueta de otro proyecto (al asignar); etiqueta sin flujo (`TagHasNoFlow`, en `state`) |
 
 ---
 
-### `DELETE /groups/{group_id}/tags/{tag_id}` — member+
+## Flows
 
-**Response 204**
+Un flujo tiene estados (exactamente uno **inicial**) y transiciones permitidas.
+Es **global** (`/flows/`: lo gestiona el administrador y lo ve cualquier usuario
+autenticado) o **de un proyecto** (`/projects/{id}/flows/`: lo gestionan su
+propietario o líder y lo ven sus miembros). Las rutas `/flows/{id}/…` valen para
+los dos ámbitos, con esos mismos permisos. Nombres de flujo: misma regla que las
+etiquetas. Nombres de estado: únicos en el flujo, sin distinguir mayúsculas.
 
-**Errores:** 404 si grupo no encontrado.
+### `GET /flows/` · `GET /projects/{project_id}/flows/`
+
+**Response 200:** `list[FlowResponse]`. La de proyecto incluye primero los globales.
+
+### `POST /flows/` (admin) · `POST /projects/{project_id}/flows/` (owner o leader)
+
+```json
+{ "name": "Devslice",
+  "states": [{"name": "Planificada", "color": "#94A3B8"}, {"name": "En desarrollo"}, {"name": "Terminada"}],
+  "initial": "Planificada",
+  "transitions": [{"from": "Planificada", "to": "En desarrollo"},
+                  {"from": "En desarrollo", "to": "Terminada"}] }
+```
+Estados en el orden dado; `initial` y transiciones por nombre (sin distinguir
+mayúsculas); `transitions` es opcional.
+
+**Response 201:** `FlowResponse`
+
+**Errores:** 403; 409 (nombre en uso); 422 (`InvalidFlowDefinition`: sin estados,
+inicial que no es un estado, estado repetido, transición con un estado desconocido,
+a sí mismo o repetida).
+
+### `GET /flows/{flow_id}` · `PATCH /flows/{flow_id}` · `DELETE /flows/{flow_id}`
+
+- `PATCH` con body `{"name": "…"}` → `FlowResponse`. 409 si el nombre está en uso.
+- `DELETE` → 204. **409** (`FlowInUse`) si alguna etiqueta lo usa.
+
+### Estados
+
+| Ruta | Body | Notas |
+|------|------|-------|
+| `POST /flows/{id}/states` | `name`, `color?`, `is_initial?` | Al final. **201** `FlowResponse` |
+| `PATCH /flows/{id}/states/{sid}` | `name?`, `color?`, `sort_order?`, `is_initial?` | **200** `FlowResponse`. `is_initial: true` lo hace el único inicial (solo afecta a asignaciones futuras); `false` sobre el inicial → 422 |
+| `DELETE /flows/{id}/states/{sid}` | — | **204**; borra también sus transiciones. **409** (`FlowStateInUse`) si algún elemento está en él (indica cuáles); **422** si es el inicial |
+
+### Transiciones
+
+| Ruta | Notas |
+|------|-------|
+| `POST /flows/{id}/transitions` | Body `{"from_state_id", "to_state_id"}`. **201** `FlowResponse`. 404 si un estado no es del flujo; 422 si es a sí mismo o ya existe |
+| `DELETE /flows/{id}/transitions/{from_sid}/{to_sid}` | **204**; 404 si no existe |
+
+Añadir o quitar estados y transiciones está permitido aunque el flujo esté en uso;
+un elemento puede quedarse sin salidas.
 
 ---
 

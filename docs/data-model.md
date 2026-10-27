@@ -8,7 +8,9 @@
   - [Group](#group-columna-kanban)
   - [Task](#task)
   - [Priority](#priority-scoped-a-proyecto)
-  - [Tag](#tag-scoped-a-proyecto)
+  - [Tag](#tag-global-o-de-proyecto)
+  - [Flow, FlowState y transiciones](#flow-flowstate-y-transiciones)
+  - [FlowStateChange](#flowstatechange-registro-de-estados)
   - [TodoItem](#todoitem-subtarea)
 - [Tablas de unión](#tablas-de-unión)
 - [Relaciones y cascadas](#relaciones-y-cascadas)
@@ -79,13 +81,29 @@
 | color | str | hex #RRGGBB |
 | project_id | int FK | → projects, ON DELETE CASCADE |
 
-### Tag *(scoped a proyecto)*
+### Tag *(global o de proyecto)*
 | Campo | Tipo | Notas |
 |-------|------|-------|
 | id | int PK | |
-| name | str (1-50) | único por proyecto |
+| name | str (1-50) | único en su ámbito, sin distinguir mayúsculas (lo comprueba `TagUseCases`) |
 | color | str | hex #RRGGBB |
-| project_id | int FK | → projects, ON DELETE CASCADE |
+| project_id | int FK nulo | → projects, ON DELETE CASCADE. **Nulo = global** |
+| flow_id | int FK nulo | → flows, ON DELETE SET NULL. Global: solo flujos globales |
+
+### Flow, FlowState y transiciones
+Ver [flows.md](flows.md).
+
+| Tabla | Campos | Notas |
+|-------|--------|-------|
+| `flows` | id, name, project_id (FK nulo, CASCADE; **nulo = global**), auditoría | nombre único en su ámbito (caso de uso) |
+| `flow_states` | id, flow_id (CASCADE), name, color, sort_order, is_initial (bool) | `UNIQUE(flow_id, name)`; exactamente un inicial (caso de uso) |
+| `flow_transitions` | flow_id (CASCADE), from_state_id, to_state_id (CASCADE) | PK (from, to); `CHECK from <> to` |
+
+### FlowStateChange *(registro de estados)*
+Tabla `flow_state_changes`: id, task_id **o** group_id (CASCADE; `CHECK` exactamente
+uno), tag_id (CASCADE), from_state, to_state (**nombres**, nulos al entrar/salir del
+flujo), note, changed_by (SET NULL), changed_at. Se conserva al desasignar la
+etiqueta; se borra con la tarea, el grupo o la etiqueta.
 
 ### TodoItem (subtarea)
 | Campo | Tipo | Notas |
@@ -103,8 +121,8 @@
 | Tabla | Columnas | Propósito |
 |-------|----------|-----------|
 | `project_members` | (project_id, user_id) PK | membresía al proyecto |
-| `task_tags` | (task_id, tag_id) PK | etiquetas de una tarea |
-| `group_tags` | (group_id, tag_id) PK | etiquetas de un grupo |
+| `task_tags` | (task_id, tag_id) PK, state_id | etiquetas de una tarea; `state_id` (→ flow_states, SET NULL) = estado actual si la etiqueta tiene flujo |
+| `group_tags` | (group_id, tag_id) PK, state_id | ídem para grupos |
 
 ---
 
@@ -118,14 +136,16 @@ User
 
 Project
  └─< Priority                    → CASCADE
- └─< Tag                         → CASCADE
+ └─< Tag                         → CASCADE (las globales no tienen proyecto)
+ └─< Flow                        → CASCADE (ídem)
+      └─< FlowState, transiciones → CASCADE
  └─< Group
       └─< Task
            └─< TodoItem          → CASCADE
            └─< task_tags         → CASCADE
 ```
 
-Borrar un **Proyecto** elimina en cascada: grupos, tareas, todos, tags, prioridades, membresías.  
+Borrar un **Proyecto** elimina en cascada: grupos, tareas, todos, tags y flujos del proyecto, prioridades, membresías.  
 Borrar un **Usuario** (operación admin) requiere primero borrar o transferir sus proyectos; existe el endpoint de cascade-delete con confirmación de contraseña.
 
 ---
@@ -133,7 +153,8 @@ Borrar un **Usuario** (operación admin) requiere primero borrar o transferir su
 ## Restricciones de integridad notables
 
 - `priorities.name` + `priorities.project_id` → UNIQUE
-- `tags.name` + `tags.project_id` → UNIQUE
+- `tags.name` + `tags.project_id` → UNIQUE (no cubre las globales: los nulos no se comparan; la regla completa está en el caso de uso)
+- `flow_states.flow_id` + `name` → UNIQUE; `flow_transitions` sin `from = to`
 - `users.email` → UNIQUE
 - Colores validados como hex `#RRGGBB` en Pydantic (schemas) y con CHECK en SQLite
 - `is_admin` → CHECK (0 o 1)

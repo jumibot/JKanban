@@ -21,7 +21,8 @@ from backend.main import app  # noqa: E402
 
 # Orden hijo → padre para respetar las FKs
 _TABLES = [
-    "todo_items", "task_tags", "group_tags", "tasks", "tags",
+    "flow_state_changes", "todo_items", "task_tags", "group_tags", "tasks", "tags",
+    "flow_transitions", "flow_states", "flows",
     "project_members", "groups", "projects", "users", "priorities",
 ]
 

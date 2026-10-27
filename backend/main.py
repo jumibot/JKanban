@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from backend.infrastructure.database import init_db
-from backend.interfaces.routers import admin, auth, groups, priorities, projects, tags, tasks, todos
+from backend.interfaces.routers import admin, auth, flows, groups, priorities, projects, tags, tasks, todos
 from backend.interfaces.routers import users
 
 app = FastAPI(title="Tasks API", version="7.0.0")
@@ -20,6 +20,8 @@ app.include_router(users.router)
 app.include_router(todos.router)
 app.include_router(tags.router)
 app.include_router(tags.assign_router)
+app.include_router(tags.global_router)
+app.include_router(flows.router)
 
 _FRONTEND = Path(__file__).parent.parent / "frontend"
 

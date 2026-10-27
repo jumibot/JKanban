@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
+from backend.application.flow_use_cases import FlowUseCases
 from backend.application.group_use_cases import GroupUseCases
 from backend.application.project_use_cases import ProjectUseCases
 from backend.application.tag_use_cases import TagUseCases
@@ -10,6 +11,7 @@ from backend.application.user_use_cases import UserUseCases
 from backend.domain.entities import User
 from backend.domain.exceptions import ProjectNotFound, UserNotInProject
 from backend.infrastructure.jwt_handler import decode_access_token
+from backend.infrastructure.repositories.flow_repository import SqlFlowRepository
 from backend.infrastructure.repositories.group_repository import SqlGroupRepository
 from backend.infrastructure.repositories.priority_repository import SqlPriorityRepository
 from backend.infrastructure.repositories.project_repository import SqlProjectRepository
@@ -80,7 +82,7 @@ def require_project_leader(project_id: int, user_id: int) -> None:
     if role not in ("owner", "leader"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el propietario o líder puede gestionar las etiquetas del proyecto",
+            detail="Solo el propietario o líder puede gestionar etiquetas, prioridades y flujos del proyecto",
         )
 
 
@@ -128,4 +130,9 @@ def get_tag_use_cases() -> TagUseCases:
         tag_repo=SqlTagRepository(),
         task_repo=SqlTaskRepository(),
         group_repo=SqlGroupRepository(),
+        flow_repo=SqlFlowRepository(),
     )
+
+
+def get_flow_use_cases() -> FlowUseCases:
+    return FlowUseCases(flow_repo=SqlFlowRepository(), tag_repo=SqlTagRepository())
